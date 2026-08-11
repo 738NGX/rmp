@@ -1,4 +1,4 @@
-import { IconButton, useColorModeValue } from '@chakra-ui/react';
+import { IconButton } from '@chakra-ui/react';
 import rmgRuntime from '@railmapgen/rmg-runtime';
 import { utils } from '@railmapgen/svg-assets';
 import { nanoid } from 'nanoid';
@@ -87,7 +87,6 @@ const SvgWrapper = () => {
 
     const size = useWindowSize();
     const { height, width } = getCanvasSize(size);
-    const canvasFilter = useColorModeValue('none', 'brightness(0.78) contrast(0.95)');
 
     const isMasterDisabled = !activeSubscriptions.RMP_CLOUD && masterNodesCount + 1 > MAX_MASTER_NODE_FREE;
     const isParallelDisabled =
@@ -448,7 +447,6 @@ const SvgWrapper = () => {
                     userSelect: 'none',
                     touchAction: 'none',
                     backgroundColor: '#ffffff',
-                    filter: canvasFilter,
                 }}
                 height={height}
                 width={width}

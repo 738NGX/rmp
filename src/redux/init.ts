@@ -4,6 +4,7 @@ import { EdgeAttributes, GraphAttributes, LocalStorageKey, NodeAttributes } from
 import i18n from '../i18n/config';
 import { onLocalStorageChangeRMT, onRMPSaveUpdate } from '../util/rmt-save';
 import { RMPSave, stringifyParam, upgrade } from '../util/save';
+import { isSelfHosted, selfHostedSubscriptions } from '../selfhost/config';
 import { RootStore, startRootListening } from '.';
 import { setActiveSubscriptions, setState } from './account/account-slice';
 import {
@@ -109,7 +110,16 @@ export const initStore = async (store: RootStore) => {
     store.dispatch(refreshNodesThunk());
     store.dispatch(refreshEdgesThunk());
 
-    onLocalStorageChangeRMT(store); // update the login state and token read from localStorage
+    if (isSelfHosted) {
+        // A self-hosted deployment owns access control through its save service.
+        // Do not contact or depend on the Rail Map Toolkit account service.
+        store.dispatch(setState('subscriber'));
+        store.dispatch(setActiveSubscriptions(selfHostedSubscriptions));
+        store.dispatch(refreshNodesThunk());
+        store.dispatch(refreshEdgesThunk());
+    } else {
+        onLocalStorageChangeRMT(store); // update the login state and token read from localStorage
+    }
 
     startRootListening({
         predicate: (_action, currentState, previousState) => {

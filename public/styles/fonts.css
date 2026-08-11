@@ -1,0 +1,6 @@
+/* Kept local so the self-hosted build has no dependency on railmapgen.org. */
+@font-face {
+    font-family: 'Roboto';
+    src: url('../fonts/Roboto-Bold.ttf') format('truetype');
+    font-display: swap;
+}

@@ -9,6 +9,7 @@ import { Events } from '../../constants/constants';
 import { useRootDispatch, useRootSelector } from '../../redux';
 import { redoAction, undoAction } from '../../redux/param/param-slice';
 import { useScreenOrientation } from '../../util/hooks';
+import SelfHostedSaves from '../../selfhost/selfhost-saves';
 import AboutModal from './about-modal';
 import DownloadActions from './download-actions';
 import OpenActions from './open-actions';
@@ -98,6 +99,8 @@ export default function WindowHeader() {
                     <OpenActions />
 
                     <DownloadActions />
+
+                    <SelfHostedSaves />
 
                     {rmgRuntime.isStandaloneWindow() && (
                         <Menu>

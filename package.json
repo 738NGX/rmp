@@ -73,7 +73,8 @@
         "test": "vitest",
         "lint": "eslint ./src",
         "lint:fix": "eslint ./src --fix",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "selfhost:server": "node scripts/selfhost-server.mjs"
     },
     "version": "6.0.12"
 }
