@@ -9,16 +9,26 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 
-const password = process.env.RMP_SELFHOST_PASSWORD;
-if (!password) {
-    console.error('RMP_SELFHOST_PASSWORD must be set before starting the self-hosted server.');
+const rootDir = resolve(process.cwd());
+const configPath = resolve(rootDir, 'rmp-selfhost.config.json');
+let config;
+try {
+    config = JSON.parse(await readFile(configPath, 'utf8'));
+} catch (error) {
+    console.error(`Unable to read ${configPath}. Copy rmp-selfhost.config.example.json and configure it.`);
+    console.error(error);
     process.exit(1);
 }
 
-const port = Number(process.env.PORT ?? 4173);
-const rootDir = resolve(process.cwd());
-const distDir = resolve(process.env.RMP_SELFHOST_DIST_DIR ?? resolve(rootDir, 'dist'));
-const dataDir = resolve(process.env.RMP_SELFHOST_DATA_DIR ?? resolve(rootDir, 'rmp-data'));
+const password = config.password;
+if (typeof password !== 'string' || password.length < 12) {
+    console.error('The self-hosted configuration requires a password of at least 12 characters.');
+    process.exit(1);
+}
+
+const port = Number.isInteger(config.port) && config.port > 0 && config.port < 65536 ? config.port : 4173;
+const distDir = resolve(rootDir, config.distDir ?? 'dist');
+const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
 

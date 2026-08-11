@@ -6,9 +6,9 @@ be opened from any device.
 
 ## Build and run
 
-1. Copy `.env.selfhost.example` to `.env.production.local`.
-2. Run `npm ci` and `npm run build`.
-3. Set a long, unique `RMP_SELFHOST_PASSWORD`, then run `npm run selfhost:server`.
+1. Copy `rmp-selfhost.config.example.json` to `rmp-selfhost.config.json` and set a long, unique password.
+2. Run `npm ci` and `npm run build:selfhost`.
+3. Run `npm run selfhost:server`.
 4. Put the process behind an HTTPS reverse proxy and visit `/rmp/`.
 
 The companion process serves the built `dist` directory and its API from the
@@ -17,9 +17,11 @@ same origin. Its defaults are deliberately small:
 `public/info.json` is included specifically for this mode. The RMG runtime
 requires it at `/rmp/info.json`; do not remove it from a deployment.
 
-- Port: `4173` (`PORT` overrides it)
-- Data directory: `./rmp-data` (`RMP_SELFHOST_DATA_DIR` overrides it)
-- Build directory: `./dist` (`RMP_SELFHOST_DIST_DIR` overrides it)
+- Port: `4173`
+- Data directory: `./rmp-data`
+- Build directory: `./dist`
+
+These values, including the password, are set in `rmp-selfhost.config.json`; no environment variables are required. Keep that file out of Git and limit it to the service account (`chmod 600 rmp-selfhost.config.json` on Linux).
 
 Back up the complete data directory. It contains `index.json` and one JSON file
 per save. Writes use a temporary file followed by an atomic rename. The service

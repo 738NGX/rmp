@@ -1,0 +1,6 @@
+{
+    "password": "replace-with-a-long-random-password",
+    "port": 4173,
+    "dataDir": "rmp-data",
+    "distDir": "dist"
+}
