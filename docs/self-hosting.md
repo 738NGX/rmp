@@ -38,6 +38,10 @@ saves, so keep it in your server's secret manager.
   conflict offers reload or saving the local work as a copy.
 - Saves can be duplicated and placed in named groups. Deleting a group leaves
   its saves intact and moves them to the ungrouped list.
+- Each save retains its three most recent replaced versions. Open **Version
+  history** for the active save to restore one; the version being replaced is
+  retained first, so restoring is itself reversible while it remains in the
+  three-version window. Deleting a save also deletes its retained history.
 - The selected interface language is cached in the browser and synchronized in
   `profile.json` after connecting to the self-hosted save service.
 - The active save can publish a public SVG. Its unguessable `/share/<token>.svg`

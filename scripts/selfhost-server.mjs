@@ -5,7 +5,7 @@
  * dependency installation are required.
  */
 import { createServer } from 'node:http';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 
@@ -32,8 +32,10 @@ const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
 const paletteCitiesPath = resolve(dataDir, 'palette-cities.json');
 const profilePath = resolve(dataDir, 'profile.json');
+const historyRootPath = resolve(dataDir, 'history');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
 const LEASE_DURATION_MS = 45_000;
+const HISTORY_LIMIT = 3;
 const UPSTREAM_ORIGIN = 'https://railmapgen.org';
 const proxiedPathPrefixes = ['/styles/', '/fonts/', '/rmg/', '/rmg-palette/', '/rmp-gallery/'];
 const leases = new Map();
@@ -131,11 +133,13 @@ const readBody = request =>
 
 const readJsonBody = async request => JSON.parse(await readBody(request));
 
-const writeJsonAtomically = async (path, value) => {
+const writeTextAtomically = async (path, value) => {
     const temporaryPath = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporaryPath, JSON.stringify(value), 'utf8');
+    await writeFile(temporaryPath, value, 'utf8');
     await rename(temporaryPath, path);
 };
+
+const writeJsonAtomically = async (path, value) => writeTextAtomically(path, JSON.stringify(value));
 
 const readIndex = async () => {
     try {
@@ -180,12 +184,68 @@ const validContent = content => {
 };
 const contentPath = id => resolve(dataDir, `${id}.json`);
 const svgPath = id => resolve(dataDir, `${id}.svg`);
+const historyDir = id => resolve(historyRootPath, id);
+const historyPath = (id, revision) => resolve(historyDir(id), `${revision}.json`);
 const findSave = (index, id) => index.saves.find(save => save.id === id);
 const isValidId = id => /^[a-zA-Z0-9_-]{8,64}$/.test(id);
 const isValidDeviceId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(id);
 const validLanguage = language => ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'].includes(language);
 const validSvg = svg =>
     typeof svg === 'string' && svg.length > 0 && svg.length <= MAX_BODY_BYTES && /^<svg[\s>]/i.test(svg.trim());
+
+/** Save the version being replaced so an owner can recover recent work. */
+const archiveSaveVersion = async (id, save) => {
+    let content;
+    try {
+        content = await readFile(contentPath(id), 'utf8');
+    } catch (error) {
+        if (error?.code === 'ENOENT') return;
+        throw error;
+    }
+    if (!validContent(content)) throw new Error(`Refusing to archive invalid content for save ${id}.`);
+
+    await mkdir(historyDir(id), { recursive: true });
+    await writeJsonAtomically(historyPath(id, save.revision), {
+        revision: save.revision,
+        name: save.name,
+        updatedAt: save.updatedAt,
+        content,
+    });
+    const revisions = (await readdir(historyDir(id), { withFileTypes: true }))
+        .filter(entry => entry.isFile() && /^\d+\.json$/.test(entry.name))
+        .map(entry => Number.parseInt(entry.name, 10))
+        .sort((a, b) => b - a);
+    await Promise.all(revisions.slice(HISTORY_LIMIT).map(revision => unlink(historyPath(id, revision))));
+};
+
+const readSaveHistory = async id => {
+    try {
+        const entries = await readdir(historyDir(id), { withFileTypes: true });
+        const versions = await Promise.all(
+            entries
+                .filter(entry => entry.isFile() && /^\d+\.json$/.test(entry.name))
+                .map(async entry => {
+                    try {
+                        const version = JSON.parse(await readFile(resolve(historyDir(id), entry.name), 'utf8'));
+                        if (
+                            !Number.isInteger(version.revision) ||
+                            !validName(version.name) ||
+                            typeof version.updatedAt !== 'string' ||
+                            !validContent(version.content)
+                        )
+                            return undefined;
+                        return version;
+                    } catch {
+                        return undefined;
+                    }
+                })
+        );
+        return versions.filter(Boolean).sort((a, b) => b.revision - a.revision);
+    } catch (error) {
+        if (error?.code === 'ENOENT') return [];
+        throw error;
+    }
+};
 /** Public SVGs are static documents; strip active content before persisting them. */
 const sanitizePublicSvg = svg =>
     svg
@@ -382,7 +442,7 @@ const handleApi = async (request, response, url) => {
                 revision: 1,
                 ...(body.groupId ? { groupId: body.groupId } : {}),
             };
-            await writeFile(contentPath(save.id), body.content, 'utf8');
+            await writeTextAtomically(contentPath(save.id), body.content);
             index.saves.push(save);
             await writeJsonAtomically(indexPath, index);
             return sendJson(response, 201, { save });
@@ -422,7 +482,7 @@ const handleApi = async (request, response, url) => {
                 revision: 1,
                 ...(save.groupId ? { groupId: save.groupId } : {}),
             };
-            await writeFile(contentPath(copy.id), await readFile(contentPath(id), 'utf8'), 'utf8');
+            await writeTextAtomically(contentPath(copy.id), await readFile(contentPath(id), 'utf8'));
             index.saves.push(copy);
             await writeJsonAtomically(indexPath, index);
             return sendJson(response, 201, { save: copy });
@@ -438,15 +498,50 @@ const handleApi = async (request, response, url) => {
             const index = await readIndex();
             const save = findSave(index, id);
             if (!save) return sendError(response, 404, 'Save not found.');
+            await archiveSaveVersion(id, save);
             if (body.name !== undefined) save.name = body.name.trim();
             save.revision += 1;
             save.updatedAt = new Date().toISOString();
-            await writeFile(contentPath(id), body.content, 'utf8');
+            await writeTextAtomically(contentPath(id), body.content);
             // A deliberate force save also takes ownership for subsequent autosaves.
             leases.set(id, { deviceId: body.deviceId, expiresAt: Date.now() + LEASE_DURATION_MS });
             await writeJsonAtomically(indexPath, index);
             return sendJson(response, 200, { save });
         });
+    }
+
+    if (parts[1] === 'history') {
+        if (!parts[2] && request.method === 'GET') {
+            const index = await readIndex();
+            if (!findSave(index, id)) return sendError(response, 404, 'Save not found.');
+            const versions = await readSaveHistory(id);
+            return sendJson(response, 200, {
+                versions: versions.map(({ revision, name, updatedAt }) => ({ revision, name, updatedAt })),
+            });
+        }
+
+        if (parts[2] && request.method === 'POST' && /^\d+$/.test(parts[2])) {
+            const revision = Number.parseInt(parts[2], 10);
+            const body = await readJsonBody(request);
+            if (!isValidDeviceId(body.deviceId)) return sendError(response, 400, 'Invalid device id.');
+            return withMutationLock(async () => {
+                const index = await readIndex();
+                const save = findSave(index, id);
+                if (!save) return sendError(response, 404, 'Save not found.');
+                const version = (await readSaveHistory(id)).find(entry => entry.revision === revision);
+                if (!version) return sendError(response, 404, 'Version not found.');
+                await archiveSaveVersion(id, save);
+                save.revision += 1;
+                save.updatedAt = new Date().toISOString();
+                await writeTextAtomically(contentPath(id), version.content);
+                // Restoring is an owner-requested recovery action, so take the lease too.
+                leases.set(id, { deviceId: body.deviceId, expiresAt: Date.now() + LEASE_DURATION_MS });
+                await writeJsonAtomically(indexPath, index);
+                return sendJson(response, 200, { save });
+            });
+        }
+
+        return sendError(response, 405, 'Method not allowed.');
     }
 
     if (parts[1] === 'share') {
@@ -526,10 +621,11 @@ const handleApi = async (request, response, url) => {
                 return sendError(response, 409, 'Save changed on another device.');
             if (!hasLease(id, body.deviceId))
                 return sendError(response, 423, 'Editing lease has expired or belongs to another device.');
+            await archiveSaveVersion(id, latestSave);
             if (body.name !== undefined) latestSave.name = body.name.trim();
             latestSave.revision += 1;
             latestSave.updatedAt = new Date().toISOString();
-            await writeFile(contentPath(id), body.content, 'utf8');
+            await writeTextAtomically(contentPath(id), body.content);
             await writeJsonAtomically(indexPath, latestIndex);
             return sendJson(response, 200, { save: latestSave });
         });
@@ -565,6 +661,7 @@ const handleApi = async (request, response, url) => {
             await unlink(svgPath(id)).catch(error => {
                 if (error?.code !== 'ENOENT') throw error;
             });
+            await rm(historyDir(id), { recursive: true, force: true });
             leases.delete(id);
             await writeJsonAtomically(indexPath, latestIndex);
             return sendJson(response, 200, { ok: true });

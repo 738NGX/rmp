@@ -27,7 +27,7 @@ import {
     useDisclosure,
 } from '@chakra-ui/react';
 import React from 'react';
-import { MdCloud, MdContentCopy, MdDelete, MdFolder, MdPublic, MdSave } from 'react-icons/md';
+import { MdCloud, MdContentCopy, MdDelete, MdFolder, MdHistory, MdPublic, MdSave } from 'react-icons/md';
 import { useRootDispatch, useRootSelector } from '../redux';
 import { saveGraph, setSvgViewBoxMin, setSvgViewBoxZoom } from '../redux/param/param-slice';
 import { clearSelected, refreshEdgesThunk, refreshNodesThunk } from '../redux/runtime/runtime-slice';
@@ -47,12 +47,15 @@ import {
     getSelfHostedProfile,
     getSelfHostedSave,
     listSelfHostedGroups,
+    listSelfHostedSaveHistory,
     listSelfHostedSaves,
     publishSelfHostedSvg,
     releaseSelfHostedSaveLease,
     SelfHostedApiError,
     SelfHostedGroup,
+    SelfHostedSaveHistoryVersion,
     SelfHostedSaveSummary,
+    restoreSelfHostedSaveHistory,
     updateSelfHostedSave,
     updateSelfHostedSaveMetadata,
 } from './api';
@@ -92,6 +95,7 @@ export default function SelfHostedSaves() {
     const [isConflict, setIsConflict] = React.useState(false);
     const [isBusy, setIsBusy] = React.useState(false);
     const [isConnected, setIsConnected] = React.useState(false);
+    const [history, setHistory] = React.useState<SelfHostedSaveHistoryVersion[] | null>(null);
     const loadingRef = React.useRef(false);
     const activeSaveRef = React.useRef<SelfHostedSaveSummary | null>(null);
     const deviceId = React.useMemo(getDeviceId, []);
@@ -101,6 +105,9 @@ export default function SelfHostedSaves() {
         if (activeSaveRef.current?.id === save.id) {
             activeSaveRef.current = save;
             setActiveSave(save);
+            // A save update changes the retained revision set; do not leave
+            // restore buttons pointing at history that may have rotated out.
+            setHistory(null);
         }
         setSaves(current => current.map(entry => (entry.id === save.id ? save : entry)));
     }, []);
@@ -174,6 +181,7 @@ export default function SelfHostedSaves() {
             if (previous?.id !== result.save.id) await releaseActiveLease(previous);
             activeSaveRef.current = result.save;
             setActiveSave(result.save);
+            setHistory(null);
             sessionStorage.setItem(ACTIVE_SAVE_KEY, result.save.id);
         } catch (err) {
             setError(
@@ -324,6 +332,48 @@ export default function SelfHostedSaves() {
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to force-save this cloud save.');
         } finally {
+            setIsBusy(false);
+        }
+    };
+
+    const loadHistory = async () => {
+        const current = activeSaveRef.current;
+        if (!current) return;
+        setError(null);
+        setIsBusy(true);
+        try {
+            setHistory((await listSelfHostedSaveHistory(password, current.id)).versions);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to load version history.');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    const restoreHistoryVersion = async (revision: number) => {
+        const current = activeSaveRef.current;
+        if (!current) return;
+        if (
+            !window.confirm(
+                `Restore version ${revision}? The current version will be retained in history before the canvas is replaced.`
+            )
+        )
+            return;
+        setError(null);
+        setIsBusy(true);
+        // Block the debounced autosave while the server switches versions and
+        // the canvas is reloaded, otherwise old canvas content could win.
+        loadingRef.current = true;
+        try {
+            const result = await restoreSelfHostedSaveHistory(password, current.id, revision, deviceId);
+            replaceSave(result.save);
+            await loadSave(result.save.id);
+            setHistory(null);
+            setIsConflict(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to restore this version.');
+        } finally {
+            loadingRef.current = false;
             setIsBusy(false);
         }
     };
@@ -530,62 +580,109 @@ export default function SelfHostedSaves() {
                                         )}
                                     </FormControl>
                                     {activeSave && (
-                                        <Box borderWidth="1px" borderRadius="md" p="3">
-                                            <HStack justify="space-between" align="start">
-                                                <Box>
-                                                    <Text fontWeight="medium">Public SVG</Text>
-                                                    <Text fontSize="sm" color="gray.500">
-                                                        Only the rendered SVG is exposed; the editable save stays
-                                                        private.
-                                                    </Text>
-                                                </Box>
-                                                {activeSave.share?.enabled && (
-                                                    <Badge colorScheme="green">Sharing</Badge>
-                                                )}
-                                            </HStack>
-                                            <HStack mt="2" wrap="wrap">
-                                                <Button
-                                                    size="sm"
-                                                    leftIcon={<MdPublic />}
-                                                    onClick={() => void publishShare()}
-                                                    isLoading={isBusy}
-                                                >
-                                                    {activeSave.share?.publishedRevision
-                                                        ? 'Update public SVG'
-                                                        : 'Publish public SVG'}
-                                                </Button>
-                                                {activeSave.share?.enabled && (
+                                        <Stack spacing="3">
+                                            <Box borderWidth="1px" borderRadius="md" p="3">
+                                                <HStack justify="space-between" align="start">
+                                                    <Box>
+                                                        <Text fontWeight="medium">Public SVG</Text>
+                                                        <Text fontSize="sm" color="gray.500">
+                                                            Only the rendered SVG is exposed; the editable save stays
+                                                            private.
+                                                        </Text>
+                                                    </Box>
+                                                    {activeSave.share?.enabled && (
+                                                        <Badge colorScheme="green">Sharing</Badge>
+                                                    )}
+                                                </HStack>
+                                                <HStack mt="2" wrap="wrap">
                                                     <Button
                                                         size="sm"
-                                                        colorScheme="red"
-                                                        variant="outline"
-                                                        onClick={() => void disableShare()}
+                                                        leftIcon={<MdPublic />}
+                                                        onClick={() => void publishShare()}
+                                                        isLoading={isBusy}
                                                     >
-                                                        Disable
+                                                        {activeSave.share?.publishedRevision
+                                                            ? 'Update public SVG'
+                                                            : 'Publish public SVG'}
                                                     </Button>
-                                                )}
+                                                    {activeSave.share?.enabled && (
+                                                        <Button
+                                                            size="sm"
+                                                            colorScheme="red"
+                                                            variant="outline"
+                                                            onClick={() => void disableShare()}
+                                                        >
+                                                            Disable
+                                                        </Button>
+                                                    )}
+                                                    {shareUrl && activeSave.share?.publishedRevision && (
+                                                        <Button
+                                                            as="a"
+                                                            size="sm"
+                                                            href={shareUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                        >
+                                                            Open SVG
+                                                        </Button>
+                                                    )}
+                                                </HStack>
                                                 {shareUrl && activeSave.share?.publishedRevision && (
-                                                    <Button
-                                                        as="a"
+                                                    <Input
+                                                        mt="2"
                                                         size="sm"
-                                                        href={shareUrl}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                    >
-                                                        Open SVG
-                                                    </Button>
+                                                        isReadOnly
+                                                        value={shareUrl}
+                                                        onFocus={event => event.currentTarget.select()}
+                                                    />
                                                 )}
-                                            </HStack>
-                                            {shareUrl && activeSave.share?.publishedRevision && (
-                                                <Input
-                                                    mt="2"
-                                                    size="sm"
-                                                    isReadOnly
-                                                    value={shareUrl}
-                                                    onFocus={event => event.currentTarget.select()}
-                                                />
-                                            )}
-                                        </Box>
+                                            </Box>
+                                            <Box borderWidth="1px" borderRadius="md" p="3">
+                                                <HStack justify="space-between" align="start">
+                                                    <Box>
+                                                        <Text fontWeight="medium">Version history</Text>
+                                                        <Text fontSize="sm" color="gray.500">
+                                                            Keeps the three versions immediately before recent saves.
+                                                        </Text>
+                                                    </Box>
+                                                    <Button
+                                                        size="sm"
+                                                        leftIcon={<MdHistory />}
+                                                        onClick={() => void loadHistory()}
+                                                        isLoading={isBusy}
+                                                    >
+                                                        {history ? 'Refresh' : 'Show'}
+                                                    </Button>
+                                                </HStack>
+                                                {history &&
+                                                    (history.length ? (
+                                                        <Stack mt="2" spacing="1">
+                                                            {history.map(version => (
+                                                                <HStack key={version.revision}>
+                                                                    <Text flex="1" fontSize="sm">
+                                                                        Version {version.revision} ·{' '}
+                                                                        {new Date(version.updatedAt).toLocaleString()}
+                                                                    </Text>
+                                                                    <Button
+                                                                        size="xs"
+                                                                        variant="outline"
+                                                                        onClick={() =>
+                                                                            void restoreHistoryVersion(version.revision)
+                                                                        }
+                                                                        isDisabled={isBusy}
+                                                                    >
+                                                                        Restore
+                                                                    </Button>
+                                                                </HStack>
+                                                            ))}
+                                                        </Stack>
+                                                    ) : (
+                                                        <Text mt="2" fontSize="sm" color="gray.500">
+                                                            No earlier version has been saved yet.
+                                                        </Text>
+                                                    ))}
+                                            </Box>
+                                        </Stack>
                                     )}
                                     <Divider />
                                     {groupedSaves.map(

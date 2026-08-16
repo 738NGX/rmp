@@ -10,6 +10,12 @@ export interface SelfHostedSaveSummary {
     share?: SelfHostedShare;
 }
 
+export interface SelfHostedSaveHistoryVersion {
+    revision: number;
+    name: string;
+    updatedAt: string;
+}
+
 export interface SelfHostedGroup {
     id: string;
     name: string;
@@ -103,6 +109,17 @@ export const forceSelfHostedSave = async (
         method: 'POST',
         body: JSON.stringify({ content, deviceId, name }),
     });
+
+export const listSelfHostedSaveHistory = async (password: string, id: string) =>
+    request<{ versions: SelfHostedSaveHistoryVersion[] }>(`/${encodeURIComponent(id)}/history`, password);
+
+/** Restore a retained version and take the editing lease for this device. */
+export const restoreSelfHostedSaveHistory = async (password: string, id: string, revision: number, deviceId: string) =>
+    request<{ save: SelfHostedSaveSummary }>(
+        `/${encodeURIComponent(id)}/history/${encodeURIComponent(String(revision))}`,
+        password,
+        { method: 'POST', body: JSON.stringify({ deviceId }) }
+    );
 
 export const deleteSelfHostedSave = async (password: string, id: string) =>
     request<{ ok: true }>(`/${encodeURIComponent(id)}`, password, { method: 'DELETE' });
