@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Explicitly migrate legacy self-hosted save indexes to the grouped-save format. */
 import { access, copyFile, readFile, rename, writeFile } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 const rootDir = resolve(process.cwd());
 const configPath = resolve(rootDir, 'rmp-selfhost.config.json');
@@ -17,8 +17,8 @@ try {
 }
 
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
-if (!isAbsolute(dataDir) || !dataDir.startsWith(rootDir)) {
-    console.error('The configured data directory must be inside the project directory.');
+if (dataDir === rootDir || dataDir === resolve(dataDir, '..')) {
+    console.error('The configured data directory must not be the project directory or a filesystem root.');
     process.exit(1);
 }
 const indexPath = resolve(dataDir, 'index.json');
