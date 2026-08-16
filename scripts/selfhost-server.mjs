@@ -429,6 +429,26 @@ const handleApi = async (request, response, url) => {
         });
     }
 
+    if (parts[1] === 'force' && request.method === 'POST') {
+        const body = await readJsonBody(request);
+        if (!validContent(body.content) || !isValidDeviceId(body.deviceId))
+            return sendError(response, 400, 'Invalid recovery save content.');
+        if (body.name !== undefined && !validName(body.name)) return sendError(response, 400, 'Invalid save name.');
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            const save = findSave(index, id);
+            if (!save) return sendError(response, 404, 'Save not found.');
+            if (body.name !== undefined) save.name = body.name.trim();
+            save.revision += 1;
+            save.updatedAt = new Date().toISOString();
+            await writeFile(contentPath(id), body.content, 'utf8');
+            // A deliberate force save also takes ownership for subsequent autosaves.
+            leases.set(id, { deviceId: body.deviceId, expiresAt: Date.now() + LEASE_DURATION_MS });
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 200, { save });
+        });
+    }
+
     if (parts[1] === 'share') {
         if (request.method === 'POST') {
             return withMutationLock(async () => {

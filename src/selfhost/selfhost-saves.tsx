@@ -43,6 +43,7 @@ import {
     disableSelfHostedShare,
     duplicateSelfHostedSave,
     enableSelfHostedShare,
+    forceSelfHostedSave,
     getSelfHostedProfile,
     getSelfHostedSave,
     listSelfHostedGroups,
@@ -96,8 +97,11 @@ export default function SelfHostedSaves() {
     const deviceId = React.useMemo(getDeviceId, []);
 
     const replaceSave = React.useCallback((save: SelfHostedSaveSummary) => {
-        activeSaveRef.current = save;
-        setActiveSave(current => (current?.id === save.id ? save : current));
+        // Metadata changes to a non-active save must never retarget autosave.
+        if (activeSaveRef.current?.id === save.id) {
+            activeSaveRef.current = save;
+            setActiveSave(save);
+        }
         setSaves(current => current.map(entry => (entry.id === save.id ? save : entry)));
     }, []);
 
@@ -300,6 +304,25 @@ export default function SelfHostedSaves() {
             setSaves(current => [result.save, ...current]);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to copy this save.');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    const forceSave = async (id: string) => {
+        const current = activeSaveRef.current;
+        if (!current || current.id !== id) return;
+        if (!window.confirm('Force-save the current canvas over this cloud save? This replaces the remote version.'))
+            return;
+        setError(null);
+        setIsBusy(true);
+        try {
+            const content = await stringifySelfHostedSave(param);
+            const result = await forceSelfHostedSave(password, id, content, deviceId);
+            replaceSave(result.save);
+            setIsConflict(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to force-save this cloud save.');
         } finally {
             setIsBusy(false);
         }
@@ -601,6 +624,20 @@ export default function SelfHostedSaves() {
                                                                     </option>
                                                                 ))}
                                                             </Select>
+                                                            <IconButton
+                                                                aria-label={`Force-save ${save.name}`}
+                                                                title={
+                                                                    activeSave?.id === save.id
+                                                                        ? 'Force-save current canvas over this save'
+                                                                        : 'Load this save before force-saving it'
+                                                                }
+                                                                size="sm"
+                                                                colorScheme="orange"
+                                                                variant="outline"
+                                                                icon={<MdSave />}
+                                                                isDisabled={activeSave?.id !== save.id || isBusy}
+                                                                onClick={() => void forceSave(save.id)}
+                                                            />
                                                             <IconButton
                                                                 aria-label={`Copy ${save.name}`}
                                                                 size="sm"

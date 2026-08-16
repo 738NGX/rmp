@@ -91,6 +91,19 @@ export const updateSelfHostedSave = async (
         body: JSON.stringify({ revision, content, name, deviceId }),
     });
 
+/** Explicit owner-requested recovery save; intentionally bypasses revision and lease checks. */
+export const forceSelfHostedSave = async (
+    password: string,
+    id: string,
+    content: string,
+    deviceId: string,
+    name?: string
+) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}/force`, password, {
+        method: 'POST',
+        body: JSON.stringify({ content, deviceId, name }),
+    });
+
 export const deleteSelfHostedSave = async (password: string, id: string) =>
     request<{ ok: true }>(`/${encodeURIComponent(id)}`, password, { method: 'DELETE' });
 
