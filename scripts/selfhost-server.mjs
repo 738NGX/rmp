@@ -31,9 +31,20 @@ const distDir = resolve(rootDir, config.distDir ?? 'dist');
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
 const themePresetsPath = resolve(dataDir, 'theme-presets.json');
+const profilePath = resolve(dataDir, 'profile.json');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
+const LEASE_DURATION_MS = 45_000;
 const UPSTREAM_ORIGIN = 'https://railmapgen.org';
 const proxiedPathPrefixes = ['/styles/', '/fonts/', '/rmg/', '/rmg-palette/', '/rmp-gallery/'];
+const leases = new Map();
+let mutationQueue = Promise.resolve();
+
+/** Serialize mutations so two simultaneous HTTP requests cannot race on index.json. */
+const withMutationLock = operation => {
+    const result = mutationQueue.then(operation, operation);
+    mutationQueue = result.catch(() => undefined);
+    return result;
+};
 
 const mimeTypes = {
     '.css': 'text/css; charset=utf-8',
@@ -123,9 +134,20 @@ const writeJsonAtomically = async (path, value) => {
 const readIndex = async () => {
     try {
         const index = JSON.parse(await readFile(indexPath, 'utf8'));
-        return Array.isArray(index.saves) ? index : { version: 1, saves: [] };
+        if (!Array.isArray(index.saves)) return { version: 2, saves: [], groups: [] };
+        return { version: 2, saves: index.saves, groups: Array.isArray(index.groups) ? index.groups : [] };
     } catch (error) {
-        if (error?.code === 'ENOENT') return { version: 1, saves: [] };
+        if (error?.code === 'ENOENT') return { version: 2, saves: [], groups: [] };
+        throw error;
+    }
+};
+
+const readProfile = async () => {
+    try {
+        const profile = JSON.parse(await readFile(profilePath, 'utf8'));
+        return typeof profile === 'object' && profile ? { version: 1, language: profile.language } : { version: 1 };
+    } catch (error) {
+        if (error?.code === 'ENOENT') return { version: 1 };
         throw error;
     }
 };
@@ -151,8 +173,13 @@ const validContent = content => {
     }
 };
 const contentPath = id => resolve(dataDir, `${id}.json`);
+const svgPath = id => resolve(dataDir, `${id}.svg`);
 const findSave = (index, id) => index.saves.find(save => save.id === id);
 const isValidId = id => /^[a-zA-Z0-9_-]{8,64}$/.test(id);
+const isValidDeviceId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(id);
+const validLanguage = language => ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'].includes(language);
+const validSvg = svg =>
+    typeof svg === 'string' && svg.length > 0 && svg.length <= MAX_BODY_BYTES && /^<svg[\s>]/i.test(svg.trim());
 const isValidThemePreset = preset =>
     preset &&
     isValidId(preset.id) &&
@@ -163,6 +190,22 @@ const isValidThemePreset = preset =>
     typeof preset.theme[1] === 'string' &&
     /^#[0-9a-fA-F]{6}$/.test(preset.theme[2]) &&
     ['#000', '#fff'].includes(preset.theme[3]);
+
+const getLease = id => {
+    const lease = leases.get(id);
+    if (lease && lease.expiresAt <= Date.now()) leases.delete(id);
+    return leases.get(id);
+};
+
+const acquireLease = (id, deviceId) => {
+    const current = getLease(id);
+    if (current && current.deviceId !== deviceId) return null;
+    const expiresAt = Date.now() + LEASE_DURATION_MS;
+    leases.set(id, { deviceId, expiresAt });
+    return new Date(expiresAt).toISOString();
+};
+
+const hasLease = (id, deviceId) => getLease(id)?.deviceId === deviceId;
 
 const handleThemePresets = async (request, response) => {
     if (!hasValidCredentials(request)) {
@@ -182,26 +225,85 @@ const handleThemePresets = async (request, response) => {
         if (new Set(body.presets.map(preset => preset.id)).size !== body.presets.length)
             return sendError(response, 400, 'Duplicate custom theme preset ids.');
         const savedPresets = { version: 1, presets: body.presets };
-        await writeJsonAtomically(themePresetsPath, savedPresets);
+        await withMutationLock(() => writeJsonAtomically(themePresetsPath, savedPresets));
         return sendJson(response, 200, { presets: savedPresets.presets });
     }
 
     return sendError(response, 405, 'Method not allowed.');
 };
 
-const handleApi = async (request, response, url) => {
-    if (!hasValidCredentials(request)) {
-        response.setHeader('WWW-Authenticate', 'Basic realm="RMP self-hosted saves"');
-        sendError(response, 401, 'Authentication failed.');
-        return;
+const requireAuthentication = (request, response) => {
+    if (hasValidCredentials(request)) return true;
+    response.setHeader('WWW-Authenticate', 'Basic realm="RMP self-hosted saves"');
+    sendError(response, 401, 'Authentication failed.');
+    return false;
+};
+
+const handleGroups = async (request, response, url) => {
+    if (!requireAuthentication(request, response)) return;
+    const parts = url.pathname.slice('/api/rmp-saves/groups'.length).split('/').filter(Boolean);
+    const id = parts[0];
+    if (id && !isValidId(id)) return sendError(response, 400, 'Invalid group id.');
+
+    if (request.method === 'GET' && !id) return sendJson(response, 200, { groups: (await readIndex()).groups });
+    if (request.method === 'POST' && !id) {
+        const body = await readJsonBody(request);
+        if (!validName(body.name)) return sendError(response, 400, 'Invalid group name.');
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            const group = {
+                id: randomUUID().replaceAll('-', ''),
+                name: body.name.trim(),
+                createdAt: new Date().toISOString(),
+            };
+            index.groups.push(group);
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 201, { group });
+        });
     }
+    if (request.method === 'DELETE' && id) {
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            if (!index.groups.some(group => group.id === id)) return sendError(response, 404, 'Group not found.');
+            index.groups = index.groups.filter(group => group.id !== id);
+            index.saves.forEach(save => {
+                if (save.groupId === id) delete save.groupId;
+            });
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 200, { ok: true });
+        });
+    }
+    return sendError(response, 405, 'Method not allowed.');
+};
+
+const handleProfile = async (request, response) => {
+    if (!requireAuthentication(request, response)) return;
+    if (request.method === 'GET') {
+        const { language } = await readProfile();
+        return sendJson(response, 200, { profile: language ? { language } : {} });
+    }
+    if (request.method === 'PUT') {
+        const body = await readJsonBody(request);
+        if (body.language !== undefined && !validLanguage(body.language))
+            return sendError(response, 400, 'Invalid language.');
+        return withMutationLock(async () => {
+            const profile = { version: 1, ...(body.language ? { language: body.language } : {}) };
+            await writeJsonAtomically(profilePath, profile);
+            return sendJson(response, 200, { profile: body.language ? { language: body.language } : {} });
+        });
+    }
+    return sendError(response, 405, 'Method not allowed.');
+};
+
+const handleApi = async (request, response, url) => {
+    if (!requireAuthentication(request, response)) return;
 
     const parts = url.pathname.slice('/api/rmp-saves'.length).split('/').filter(Boolean);
     const id = parts[0];
     if (id && !isValidId(id)) return sendError(response, 400, 'Invalid save id.');
-    const index = await readIndex();
 
     if (request.method === 'GET' && !id) {
+        const index = await readIndex();
         return sendJson(response, 200, {
             saves: [...index.saves].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
         });
@@ -211,20 +313,120 @@ const handleApi = async (request, response, url) => {
         const body = await readJsonBody(request);
         if (!validName(body.name) || !validContent(body.content))
             return sendError(response, 400, 'Invalid save name or content.');
-        const now = new Date().toISOString();
-        const save = {
-            id: randomUUID().replaceAll('-', ''),
-            name: body.name.trim(),
-            createdAt: now,
-            updatedAt: now,
-            revision: 1,
-        };
-        await writeFile(contentPath(save.id), body.content, 'utf8');
-        index.saves.push(save);
-        await writeJsonAtomically(indexPath, index);
-        return sendJson(response, 201, { save });
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            if (body.groupId !== undefined && !index.groups.some(group => group.id === body.groupId))
+                return sendError(response, 400, 'Invalid group.');
+            const now = new Date().toISOString();
+            const save = {
+                id: randomUUID().replaceAll('-', ''),
+                name: body.name.trim(),
+                createdAt: now,
+                updatedAt: now,
+                revision: 1,
+                ...(body.groupId ? { groupId: body.groupId } : {}),
+            };
+            await writeFile(contentPath(save.id), body.content, 'utf8');
+            index.saves.push(save);
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 201, { save });
+        });
     }
 
+    if (!id) return sendError(response, 405, 'Method not allowed.');
+
+    if (parts[1] === 'lease') {
+        const body = await readJsonBody(request);
+        if (!isValidDeviceId(body.deviceId)) return sendError(response, 400, 'Invalid device id.');
+        const index = await readIndex();
+        if (!findSave(index, id)) return sendError(response, 404, 'Save not found.');
+        if (request.method === 'POST') {
+            const expiresAt = acquireLease(id, body.deviceId);
+            if (!expiresAt) return sendError(response, 423, 'This save is currently being edited on another device.');
+            return sendJson(response, 200, { expiresAt });
+        }
+        if (request.method === 'DELETE') {
+            if (hasLease(id, body.deviceId)) leases.delete(id);
+            return sendJson(response, 200, { ok: true });
+        }
+        return sendError(response, 405, 'Method not allowed.');
+    }
+
+    if (parts[1] === 'duplicate' && request.method === 'POST') {
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            const save = findSave(index, id);
+            if (!save) return sendError(response, 404, 'Save not found.');
+            const now = new Date().toISOString();
+            const copy = {
+                id: randomUUID().replaceAll('-', ''),
+                name: `${save.name} (copy)`.slice(0, 120),
+                createdAt: now,
+                updatedAt: now,
+                revision: 1,
+                ...(save.groupId ? { groupId: save.groupId } : {}),
+            };
+            await writeFile(contentPath(copy.id), await readFile(contentPath(id), 'utf8'), 'utf8');
+            index.saves.push(copy);
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 201, { save: copy });
+        });
+    }
+
+    if (parts[1] === 'share') {
+        if (request.method === 'POST') {
+            return withMutationLock(async () => {
+                const index = await readIndex();
+                const save = findSave(index, id);
+                if (!save) return sendError(response, 404, 'Save not found.');
+                save.share ??= {
+                    enabled: true,
+                    token: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''),
+                    updatedAt: new Date().toISOString(),
+                };
+                save.share.enabled = true;
+                save.share.updatedAt = new Date().toISOString();
+                await writeJsonAtomically(indexPath, index);
+                return sendJson(response, 200, { save });
+            });
+        }
+        if (request.method === 'DELETE') {
+            return withMutationLock(async () => {
+                const index = await readIndex();
+                const save = findSave(index, id);
+                if (!save) return sendError(response, 404, 'Save not found.');
+                if (save.share) save.share.enabled = false;
+                await unlink(svgPath(id)).catch(error => {
+                    if (error?.code !== 'ENOENT') throw error;
+                });
+                await writeJsonAtomically(indexPath, index);
+                return sendJson(response, 200, { save });
+            });
+        }
+        return sendError(response, 405, 'Method not allowed.');
+    }
+
+    if (parts[1] === 'svg' && request.method === 'PUT') {
+        const body = await readJsonBody(request);
+        if (!Number.isInteger(body.revision) || !validSvg(body.svg)) return sendError(response, 400, 'Invalid SVG.');
+        return withMutationLock(async () => {
+            const index = await readIndex();
+            const save = findSave(index, id);
+            if (!save) return sendError(response, 404, 'Save not found.');
+            if (!save.share?.enabled) return sendError(response, 409, 'Enable sharing before publishing SVG.');
+            if (save.revision !== body.revision)
+                return sendError(response, 409, 'Save changed before SVG could be published.');
+            await writeFile(svgPath(id), body.svg, 'utf8');
+            save.share.publishedRevision = save.revision;
+            save.share.updatedAt = new Date().toISOString();
+            await writeJsonAtomically(indexPath, index);
+            return sendJson(response, 200, { save });
+        });
+    }
+
+    if (parts.length > 1) return sendError(response, 404, 'Not found.');
+
+    const index = await readIndex();
     const save = findSave(index, id);
     if (!save) return sendError(response, 404, 'Save not found.');
 
@@ -236,23 +438,61 @@ const handleApi = async (request, response, url) => {
         const body = await readJsonBody(request);
         if (!Number.isInteger(body.revision) || !validContent(body.content))
             return sendError(response, 400, 'Invalid save content.');
-        if (body.revision !== save.revision) return sendError(response, 409, 'Save changed on another device.');
+        if (!isValidDeviceId(body.deviceId)) return sendError(response, 400, 'Invalid device id.');
+        if (!hasLease(id, body.deviceId))
+            return sendError(response, 423, 'Editing lease has expired or belongs to another device.');
         if (body.name !== undefined && !validName(body.name)) return sendError(response, 400, 'Invalid save name.');
-        if (body.name !== undefined) save.name = body.name.trim();
-        save.revision += 1;
-        save.updatedAt = new Date().toISOString();
-        await writeFile(contentPath(id), body.content, 'utf8');
-        await writeJsonAtomically(indexPath, index);
-        return sendJson(response, 200, { save });
+        return withMutationLock(async () => {
+            const latestIndex = await readIndex();
+            const latestSave = findSave(latestIndex, id);
+            if (!latestSave) return sendError(response, 404, 'Save not found.');
+            if (body.revision !== latestSave.revision)
+                return sendError(response, 409, 'Save changed on another device.');
+            if (!hasLease(id, body.deviceId))
+                return sendError(response, 423, 'Editing lease has expired or belongs to another device.');
+            if (body.name !== undefined) latestSave.name = body.name.trim();
+            latestSave.revision += 1;
+            latestSave.updatedAt = new Date().toISOString();
+            await writeFile(contentPath(id), body.content, 'utf8');
+            await writeJsonAtomically(indexPath, latestIndex);
+            return sendJson(response, 200, { save: latestSave });
+        });
+    }
+
+    if (request.method === 'PATCH') {
+        const body = await readJsonBody(request);
+        return withMutationLock(async () => {
+            const latestIndex = await readIndex();
+            const latestSave = findSave(latestIndex, id);
+            if (!latestSave) return sendError(response, 404, 'Save not found.');
+            if (
+                body.groupId !== undefined &&
+                body.groupId !== null &&
+                !latestIndex.groups.some(group => group.id === body.groupId)
+            )
+                return sendError(response, 400, 'Invalid group.');
+            if (body.groupId) latestSave.groupId = body.groupId;
+            else delete latestSave.groupId;
+            await writeJsonAtomically(indexPath, latestIndex);
+            return sendJson(response, 200, { save: latestSave });
+        });
     }
 
     if (request.method === 'DELETE') {
-        index.saves = index.saves.filter(entry => entry.id !== id);
-        await unlink(contentPath(id)).catch(error => {
-            if (error?.code !== 'ENOENT') throw error;
+        return withMutationLock(async () => {
+            const latestIndex = await readIndex();
+            if (!findSave(latestIndex, id)) return sendError(response, 404, 'Save not found.');
+            latestIndex.saves = latestIndex.saves.filter(entry => entry.id !== id);
+            await unlink(contentPath(id)).catch(error => {
+                if (error?.code !== 'ENOENT') throw error;
+            });
+            await unlink(svgPath(id)).catch(error => {
+                if (error?.code !== 'ENOENT') throw error;
+            });
+            leases.delete(id);
+            await writeJsonAtomically(indexPath, latestIndex);
+            return sendJson(response, 200, { ok: true });
         });
-        await writeJsonAtomically(indexPath, index);
-        return sendJson(response, 200, { ok: true });
     }
 
     return sendError(response, 405, 'Method not allowed.');
@@ -283,12 +523,37 @@ const serveStatic = async (response, url) => {
     response.end(await readFile(filePath));
 };
 
+const servePublicSvg = async (response, token) => {
+    if (!/^[a-zA-Z0-9_-]{32,128}$/.test(token)) return sendError(response, 404, 'Not found.');
+    const index = await readIndex();
+    const save = index.saves.find(
+        entry => entry.share?.enabled && entry.share.token === token && entry.share.publishedRevision
+    );
+    if (!save) return sendError(response, 404, 'Not found.');
+    try {
+        response.writeHead(200, {
+            'Cache-Control': 'public, max-age=300',
+            'Content-Security-Policy': 'sandbox',
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'X-Content-Type-Options': 'nosniff',
+        });
+        response.end(await readFile(svgPath(save.id)));
+    } catch (error) {
+        if (error?.code === 'ENOENT') return sendError(response, 404, 'Not found.');
+        throw error;
+    }
+};
+
 await mkdir(dataDir, { recursive: true });
 createServer(async (request, response) => {
     try {
         const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
         if (url.pathname === '/healthz') return sendJson(response, 200, { ok: true });
+        const publicSvg = /^\/share\/([a-zA-Z0-9_-]+)\.svg$/.exec(url.pathname);
+        if (request.method === 'GET' && publicSvg) return await servePublicSvg(response, publicSvg[1]);
         if (url.pathname === '/api/rmp-saves/themes') return await handleThemePresets(request, response);
+        if (url.pathname.startsWith('/api/rmp-saves/groups')) return await handleGroups(request, response, url);
+        if (url.pathname === '/api/rmp-saves/profile') return await handleProfile(request, response);
         if (url.pathname.startsWith('/api/rmp-saves')) return await handleApi(request, response, url);
         if (proxiedPathPrefixes.some(prefix => url.pathname.startsWith(prefix)))
             return await serveUpstreamCompanion(request, response, url);

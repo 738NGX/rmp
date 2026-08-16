@@ -23,8 +23,7 @@ requires it at `/rmp/info.json`; do not remove it from a deployment.
 
 These values, including the password, are set in `rmp-selfhost.config.json`; no environment variables are required. Keep that file out of Git and limit it to the service account (`chmod 600 rmp-selfhost.config.json` on Linux).
 
-Back up the complete data directory. It contains `index.json` and one JSON file
-per save, plus `theme-presets.json` for custom colour presets. Writes use a temporary file followed by an atomic rename. The service
+Back up the complete data directory. It contains `index.json`, `profile.json`, one JSON and (when published) one SVG file per save, plus `theme-presets.json` for custom colour presets. Writes use a temporary file followed by an atomic rename and are serialized by the server. The service
 does not provide account recovery; losing the password prevents access to the
 saves, so keep it in your server's secret manager.
 
@@ -32,8 +31,20 @@ saves, so keep it in your server's secret manager.
 
 - The password is sent using HTTP Basic authentication and is kept only in the
   browser session. HTTPS is mandatory outside a trusted local network.
-- Autosave waits two seconds after a canvas change. Every save has a revision;
-  a save changed on another device is rejected instead of silently overwritten.
+- Autosave waits two seconds after a canvas change. Opening a save obtains a
+  45-second editing lease which is renewed while the tab remains active. A
+  second device cannot open the same save for editing until the lease is
+  released or expires. Revision checks remain in place as a second guard; a
+  conflict offers reload or saving the local work as a copy.
+- Saves can be duplicated and placed in named groups. Deleting a group leaves
+  its saves intact and moves them to the ungrouped list.
+- The selected interface language is cached in the browser and synchronized in
+  `profile.json` after connecting to the self-hosted save service.
+- The active save can publish a public SVG. Its unguessable `/share/<token>.svg`
+  URL exposes only the rendered SVG, never the editable save JSON. Use
+  **Disable** to revoke it; publishing again updates the SVG at the same URL.
+  The server sends SVGs with a sandboxed Content Security Policy. Public SVGs
+  may still reference external images that were already present in the map.
 - Custom colour presets are named colours stored on the self-hosted service.
   They are available from the drawing colour control and standard colour fields,
   and are shared by every device that connects with the save-service password.

@@ -10,6 +10,8 @@ import { useRootDispatch, useRootSelector } from '../../redux';
 import { redoAction, undoAction } from '../../redux/param/param-slice';
 import { useScreenOrientation } from '../../util/hooks';
 import SelfHostedSaves from '../../selfhost/selfhost-saves';
+import { getSelfHostedProfile, updateSelfHostedProfile } from '../../selfhost/api';
+import { isSelfHosted } from '../../selfhost/config';
 import AboutModal from './about-modal';
 import DownloadActions from './download-actions';
 import OpenActions from './open-actions';
@@ -32,6 +34,25 @@ export default function WindowHeader() {
     const orientation = useScreenOrientation();
 
     React.useEffect(() => {
+        if (!isSelfHosted) return;
+        const applyLanguage = (language?: string) => {
+            if ((['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'] as string[]).includes(language ?? '')) {
+                localStorage.setItem('rmp__selfhost__language', language!);
+                void rmgRuntime.getI18nInstance().changeLanguage(language as LanguageCode);
+            }
+        };
+        applyLanguage(localStorage.getItem('rmp__selfhost__language') ?? undefined);
+        const password = sessionStorage.getItem('rmp__selfhost__password');
+        if (password)
+            void getSelfHostedProfile(password)
+                .then(result => applyLanguage(result.profile.language))
+                .catch(() => undefined);
+        const onLanguage = (event: Event) => applyLanguage((event as CustomEvent<string>).detail);
+        window.addEventListener('rmp__selfhost__language', onLanguage);
+        return () => window.removeEventListener('rmp__selfhost__language', onLanguage);
+    }, []);
+
+    React.useEffect(() => {
         // environment !== RmgEnv.DEV -> wait after rmgRuntime.ready() in useReadyConfig
         if (isAllowAppTelemetry && environment !== RmgEnv.DEV)
             rmgRuntime.event(Events.APP_LOAD, { isStandaloneWindow: rmgRuntime.isStandaloneWindow() });
@@ -39,6 +60,11 @@ export default function WindowHeader() {
 
     const handleChangeLanguage = (language: LanguageCode) => {
         rmgRuntime.getI18nInstance().changeLanguage(language);
+        if (isSelfHosted) {
+            localStorage.setItem('rmp__selfhost__language', language);
+            const password = sessionStorage.getItem('rmp__selfhost__password');
+            if (password) void updateSelfHostedProfile(password, { language }).catch(() => undefined);
+        }
     };
     const handleUndo = () => {
         dispatch(undoAction());

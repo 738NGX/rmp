@@ -7,6 +7,25 @@ export interface SelfHostedSaveSummary {
     createdAt: string;
     updatedAt: string;
     revision: number;
+    groupId?: string;
+    share?: SelfHostedShare;
+}
+
+export interface SelfHostedGroup {
+    id: string;
+    name: string;
+    createdAt: string;
+}
+
+export interface SelfHostedShare {
+    enabled: boolean;
+    token: string;
+    publishedRevision?: number;
+    updatedAt: string;
+}
+
+export interface SelfHostedProfile {
+    language?: string;
 }
 
 export interface SelfHostedThemePreset {
@@ -18,7 +37,8 @@ export interface SelfHostedThemePreset {
 export class SelfHostedApiError extends Error {
     constructor(
         message: string,
-        readonly status: number
+        readonly status: number,
+        readonly details?: Record<string, unknown>
     ) {
         super(message);
     }
@@ -35,7 +55,7 @@ const request = async <T>(path: string, password: string, init: RequestInit = {}
     const response = await fetch(`${SELFHOST_API_PATH}${path}`, { ...init, headers });
     if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new SelfHostedApiError(body.error ?? `Request failed (${response.status})`, response.status);
+        throw new SelfHostedApiError(body.error ?? `Request failed (${response.status})`, response.status, body);
     }
     return (await response.json()) as T;
 };
@@ -43,10 +63,10 @@ const request = async <T>(path: string, password: string, init: RequestInit = {}
 export const listSelfHostedSaves = async (password: string) =>
     request<{ saves: SelfHostedSaveSummary[] }>('', password);
 
-export const createSelfHostedSave = async (password: string, name: string, content: string) =>
+export const createSelfHostedSave = async (password: string, name: string, content: string, groupId?: string) =>
     request<{ save: SelfHostedSaveSummary }>('', password, {
         method: 'POST',
-        body: JSON.stringify({ name, content }),
+        body: JSON.stringify({ name, content, groupId }),
     });
 
 export const getSelfHostedSave = async (password: string, id: string) =>
@@ -57,15 +77,64 @@ export const updateSelfHostedSave = async (
     id: string,
     revision: number,
     content: string,
-    name?: string
+    name?: string,
+    deviceId?: string
 ) =>
     request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}`, password, {
         method: 'PUT',
-        body: JSON.stringify({ revision, content, name }),
+        body: JSON.stringify({ revision, content, name, deviceId }),
     });
 
 export const deleteSelfHostedSave = async (password: string, id: string) =>
     request<{ ok: true }>(`/${encodeURIComponent(id)}`, password, { method: 'DELETE' });
+
+export const duplicateSelfHostedSave = async (password: string, id: string) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}/duplicate`, password, { method: 'POST' });
+
+export const updateSelfHostedSaveMetadata = async (password: string, id: string, groupId?: string) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}`, password, {
+        method: 'PATCH',
+        body: JSON.stringify({ groupId }),
+    });
+
+export const acquireSelfHostedSaveLease = async (password: string, id: string, deviceId: string) =>
+    request<{ expiresAt: string }>(`/${encodeURIComponent(id)}/lease`, password, {
+        method: 'POST',
+        body: JSON.stringify({ deviceId }),
+    });
+
+export const releaseSelfHostedSaveLease = async (password: string, id: string, deviceId: string) =>
+    request<{ ok: true }>(`/${encodeURIComponent(id)}/lease`, password, {
+        method: 'DELETE',
+        body: JSON.stringify({ deviceId }),
+    });
+
+export const listSelfHostedGroups = async (password: string) =>
+    request<{ groups: SelfHostedGroup[] }>('/groups', password);
+
+export const createSelfHostedGroup = async (password: string, name: string) =>
+    request<{ group: SelfHostedGroup }>('/groups', password, { method: 'POST', body: JSON.stringify({ name }) });
+
+export const deleteSelfHostedGroup = async (password: string, id: string) =>
+    request<{ ok: true }>(`/groups/${encodeURIComponent(id)}`, password, { method: 'DELETE' });
+
+export const getSelfHostedProfile = async (password: string) =>
+    request<{ profile: SelfHostedProfile }>('/profile', password);
+
+export const updateSelfHostedProfile = async (password: string, profile: SelfHostedProfile) =>
+    request<{ profile: SelfHostedProfile }>('/profile', password, { method: 'PUT', body: JSON.stringify(profile) });
+
+export const enableSelfHostedShare = async (password: string, id: string) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}/share`, password, { method: 'POST' });
+
+export const disableSelfHostedShare = async (password: string, id: string) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}/share`, password, { method: 'DELETE' });
+
+export const publishSelfHostedSvg = async (password: string, id: string, revision: number, svg: string) =>
+    request<{ save: SelfHostedSaveSummary }>(`/${encodeURIComponent(id)}/svg`, password, {
+        method: 'PUT',
+        body: JSON.stringify({ revision, svg }),
+    });
 
 export const listSelfHostedThemePresets = async (password: string) =>
     request<{ presets: SelfHostedThemePreset[] }>('/themes', password);
