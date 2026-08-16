@@ -43,8 +43,9 @@ saves, so keep it in your server's secret manager.
 - The active save can publish a public SVG. Its unguessable `/share/<token>.svg`
   URL exposes only the rendered SVG, never the editable save JSON. Use
   **Disable** to revoke it; publishing again updates the SVG at the same URL.
-  The server sends SVGs with a sandboxed Content Security Policy. Public SVGs
-  may still reference external images that were already present in the map.
+  The server strips executable SVG content and sends a restrictive static-content
+  policy. Public SVGs may still reference external images that were already
+  present in the map.
 - Local colour palettes define cities and their line-colour lists. Use **Manage
   local palettes** within the normal colour picker, then choose the new city
   from that same picker. The city list is intentionally available to the

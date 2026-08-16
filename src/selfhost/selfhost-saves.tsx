@@ -361,7 +361,10 @@ export default function SelfHostedSaves() {
             if (!saved) return;
             const shared = saved.share ? saved : (await enableSelfHostedShare(password, saved.id)).save;
             replaceSave(shared);
-            const { elem } = await makeRenderReadySVGElement(window.graph, false, false, languages, false, 2);
+            // Public links are explicitly shared by their owner, so do not add
+            // the optional RMP attribution. System fonts keep the static SVG
+            // compact enough to open promptly in a browser.
+            const { elem } = await makeRenderReadySVGElement(window.graph, true, true, languages, false, 2);
             const svg = elem.outerHTML.replace(/&nbsp;/g, ' ').replace(/\p{Cc}/gu, '');
             replaceSave((await publishSelfHostedSvg(password, shared.id, shared.revision, svg)).save);
         } catch (err) {

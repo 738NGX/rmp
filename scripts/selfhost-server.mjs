@@ -186,6 +186,13 @@ const isValidDeviceId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{8,128}$/
 const validLanguage = language => ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'].includes(language);
 const validSvg = svg =>
     typeof svg === 'string' && svg.length > 0 && svg.length <= MAX_BODY_BYTES && /^<svg[\s>]/i.test(svg.trim());
+/** Public SVGs are static documents; strip active content before persisting them. */
+const sanitizePublicSvg = svg =>
+    svg
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+        .replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject\s*>/gi, '')
+        .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        .replace(/\s(?:href|xlink:href)\s*=\s*("|')\s*javascript:[\s\S]*?\1/gi, '');
 const validTranslation = value =>
     value &&
     typeof value === 'object' &&
@@ -465,7 +472,7 @@ const handleApi = async (request, response, url) => {
             if (!save.share?.enabled) return sendError(response, 409, 'Enable sharing before publishing SVG.');
             if (save.revision !== body.revision)
                 return sendError(response, 409, 'Save changed before SVG could be published.');
-            await writeFile(svgPath(id), body.svg, 'utf8');
+            await writeFile(svgPath(id), sanitizePublicSvg(body.svg), 'utf8');
             save.share.publishedRevision = save.revision;
             save.share.updatedAt = new Date().toISOString();
             await writeJsonAtomically(indexPath, index);
@@ -582,7 +589,8 @@ const servePublicSvg = async (response, token) => {
     try {
         response.writeHead(200, {
             'Cache-Control': 'public, max-age=300',
-            'Content-Security-Policy': 'sandbox',
+            'Content-Security-Policy':
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data: https: http:; font-src data:",
             'Content-Type': 'image/svg+xml; charset=utf-8',
             'X-Content-Type-Options': 'nosniff',
         });
