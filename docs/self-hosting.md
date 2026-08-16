@@ -39,6 +39,10 @@ saves, so keep it in your server's secret manager.
 - This mode removes RMP's dependency on the original subscription endpoint, but
   gallery, share, translation, random-name, and server-image features still
   point at their existing upstream endpoints unless separately removed.
+- The server proxies the companion palette app at `/rmg-palette/`, which is
+  required by RMP's colour picker. It also proxies the companion paths used by
+  upstream RMP (`/styles/`, `/fonts/`, `/rmg/`, and `/rmp-gallery/`). A fully
+  offline deployment must host compatible copies of those apps instead.
 
 ## Updating from upstream
 

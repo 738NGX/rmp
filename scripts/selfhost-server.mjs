@@ -31,6 +31,8 @@ const distDir = resolve(rootDir, config.distDir ?? 'dist');
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
+const UPSTREAM_ORIGIN = 'https://railmapgen.org';
+const proxiedPathPrefixes = ['/styles/', '/fonts/', '/rmg/', '/rmg-palette/', '/rmp-gallery/'];
 
 const mimeTypes = {
     '.css': 'text/css; charset=utf-8',
@@ -57,6 +59,26 @@ const sendJson = (response, status, body) => {
 };
 
 const sendError = (response, status, error) => sendJson(response, status, { error });
+
+/**
+ * RMP embeds a small set of companion Rail Map apps (notably rmg-palette for
+ * the colour picker). Development uses a Vite proxy for these routes; mirror
+ * that behaviour in the standalone server without turning it into an open proxy.
+ */
+const serveUpstreamCompanion = async (request, response, url) => {
+    const upstreamResponse = await fetch(new URL(`${url.pathname}${url.search}`, UPSTREAM_ORIGIN), {
+        headers: {
+            Accept: request.headers.accept ?? '*/*',
+            'Accept-Language': request.headers['accept-language'] ?? '',
+        },
+    });
+    const headers = {
+        'Cache-Control': upstreamResponse.headers.get('cache-control') ?? 'public, max-age=3600',
+        'Content-Type': upstreamResponse.headers.get('content-type') ?? 'application/octet-stream',
+    };
+    response.writeHead(upstreamResponse.status, headers);
+    response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+};
 
 const hasValidCredentials = request => {
     const header = request.headers.authorization;
@@ -221,6 +243,8 @@ createServer(async (request, response) => {
         const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
         if (url.pathname === '/healthz') return sendJson(response, 200, { ok: true });
         if (url.pathname.startsWith('/api/rmp-saves')) return await handleApi(request, response, url);
+        if (proxiedPathPrefixes.some(prefix => url.pathname.startsWith(prefix)))
+            return await serveUpstreamCompanion(request, response, url);
         if (url.pathname === '/rmp') {
             response.writeHead(302, { Location: '/rmp/' });
             return response.end();
