@@ -361,10 +361,11 @@ export default function SelfHostedSaves() {
             if (!saved) return;
             const shared = saved.share ? saved : (await enableSelfHostedShare(password, saved.id)).save;
             replaceSave(shared);
-            // Public links are explicitly shared by their owner, so do not add
-            // the optional RMP attribution. System fonts keep the static SVG
-            // compact enough to open promptly in a browser.
+            // Self-hosted public links are published by the deployment owner,
+            // so never append RMP attribution. Remove any stale cloned node as
+            // an additional guarantee before uploading the static SVG.
             const { elem } = await makeRenderReadySVGElement(window.graph, true, true, languages, false, 2);
+            elem.querySelector('#rmp_info')?.remove();
             const svg = elem.outerHTML.replace(/&nbsp;/g, ' ').replace(/\p{Cc}/gu, '');
             replaceSave((await publishSelfHostedSvg(password, shared.id, shared.revision, svg)).save);
         } catch (err) {
