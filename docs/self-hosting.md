@@ -24,7 +24,7 @@ requires it at `/rmp/info.json`; do not remove it from a deployment.
 These values, including the password, are set in `rmp-selfhost.config.json`; no environment variables are required. Keep that file out of Git and limit it to the service account (`chmod 600 rmp-selfhost.config.json` on Linux).
 
 Back up the complete data directory. It contains `index.json` and one JSON file
-per save. Writes use a temporary file followed by an atomic rename. The service
+per save, plus `theme-presets.json` for custom colour presets. Writes use a temporary file followed by an atomic rename. The service
 does not provide account recovery; losing the password prevents access to the
 saves, so keep it in your server's secret manager.
 
@@ -34,6 +34,9 @@ saves, so keep it in your server's secret manager.
   browser session. HTTPS is mandatory outside a trusted local network.
 - Autosave waits two seconds after a canvas change. Every save has a revision;
   a save changed on another device is rejected instead of silently overwritten.
+- Custom colour presets are named colours stored on the self-hosted service.
+  They are available from the drawing colour control and standard colour fields,
+  and are shared by every device that connects with the save-service password.
 - Uploaded local images are bundled into the cloud-save JSON. Images hosted by
   the original Rail Map service remain external references.
 - This mode removes RMP's dependency on the original subscription endpoint, but

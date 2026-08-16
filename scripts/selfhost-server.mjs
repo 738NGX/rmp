@@ -30,6 +30,7 @@ const port = Number.isInteger(config.port) && config.port > 0 && config.port < 6
 const distDir = resolve(rootDir, config.distDir ?? 'dist');
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
+const themePresetsPath = resolve(dataDir, 'theme-presets.json');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
 const UPSTREAM_ORIGIN = 'https://railmapgen.org';
 const proxiedPathPrefixes = ['/styles/', '/fonts/', '/rmg/', '/rmg-palette/', '/rmp-gallery/'];
@@ -129,6 +130,16 @@ const readIndex = async () => {
     }
 };
 
+const readThemePresets = async () => {
+    try {
+        const savedPresets = JSON.parse(await readFile(themePresetsPath, 'utf8'));
+        return Array.isArray(savedPresets.presets) ? savedPresets : { version: 1, presets: [] };
+    } catch (error) {
+        if (error?.code === 'ENOENT') return { version: 1, presets: [] };
+        throw error;
+    }
+};
+
 const validName = name => typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 120;
 const validContent = content => {
     if (typeof content !== 'string' || content.length > MAX_BODY_BYTES) return false;
@@ -142,6 +153,41 @@ const validContent = content => {
 const contentPath = id => resolve(dataDir, `${id}.json`);
 const findSave = (index, id) => index.saves.find(save => save.id === id);
 const isValidId = id => /^[a-zA-Z0-9_-]{8,64}$/.test(id);
+const isValidThemePreset = preset =>
+    preset &&
+    isValidId(preset.id) &&
+    validName(preset.name) &&
+    Array.isArray(preset.theme) &&
+    preset.theme.length === 4 &&
+    typeof preset.theme[0] === 'string' &&
+    typeof preset.theme[1] === 'string' &&
+    /^#[0-9a-fA-F]{6}$/.test(preset.theme[2]) &&
+    ['#000', '#fff'].includes(preset.theme[3]);
+
+const handleThemePresets = async (request, response) => {
+    if (!hasValidCredentials(request)) {
+        response.setHeader('WWW-Authenticate', 'Basic realm="RMP self-hosted saves"');
+        return sendError(response, 401, 'Authentication failed.');
+    }
+
+    if (request.method === 'GET') {
+        const savedPresets = await readThemePresets();
+        return sendJson(response, 200, { presets: savedPresets.presets });
+    }
+
+    if (request.method === 'PUT') {
+        const body = await readJsonBody(request);
+        if (!Array.isArray(body.presets) || body.presets.length > 100 || !body.presets.every(isValidThemePreset))
+            return sendError(response, 400, 'Invalid custom theme presets.');
+        if (new Set(body.presets.map(preset => preset.id)).size !== body.presets.length)
+            return sendError(response, 400, 'Duplicate custom theme preset ids.');
+        const savedPresets = { version: 1, presets: body.presets };
+        await writeJsonAtomically(themePresetsPath, savedPresets);
+        return sendJson(response, 200, { presets: savedPresets.presets });
+    }
+
+    return sendError(response, 405, 'Method not allowed.');
+};
 
 const handleApi = async (request, response, url) => {
     if (!hasValidCredentials(request)) {
@@ -242,6 +288,7 @@ createServer(async (request, response) => {
     try {
         const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
         if (url.pathname === '/healthz') return sendJson(response, 200, { ok: true });
+        if (url.pathname === '/api/rmp-saves/themes') return await handleThemePresets(request, response);
         if (url.pathname.startsWith('/api/rmp-saves')) return await handleApi(request, response, url);
         if (proxiedPathPrefixes.some(prefix => url.pathname.startsWith(prefix)))
             return await serveUpstreamCompanion(request, response, url);

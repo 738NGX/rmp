@@ -1,3 +1,4 @@
+import { Theme } from '../constants/constants';
 import { SELFHOST_API_PATH } from './config';
 
 export interface SelfHostedSaveSummary {
@@ -6,6 +7,12 @@ export interface SelfHostedSaveSummary {
     createdAt: string;
     updatedAt: string;
     revision: number;
+}
+
+export interface SelfHostedThemePreset {
+    id: string;
+    name: string;
+    theme: Theme;
 }
 
 export class SelfHostedApiError extends Error {
@@ -59,3 +66,12 @@ export const updateSelfHostedSave = async (
 
 export const deleteSelfHostedSave = async (password: string, id: string) =>
     request<{ ok: true }>(`/${encodeURIComponent(id)}`, password, { method: 'DELETE' });
+
+export const listSelfHostedThemePresets = async (password: string) =>
+    request<{ presets: SelfHostedThemePreset[] }>('/themes', password);
+
+export const replaceSelfHostedThemePresets = async (password: string, presets: SelfHostedThemePreset[]) =>
+    request<{ presets: SelfHostedThemePreset[] }>('/themes', password, {
+        method: 'PUT',
+        body: JSON.stringify({ presets }),
+    });
