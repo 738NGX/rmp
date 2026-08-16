@@ -87,11 +87,10 @@ export default function RmgPaletteAppClip(props: RmgPaletteAppClip) {
             {isSelfHosted && (
                 <Button
                     position="absolute"
-                    left="0"
+                    right="10"
                     top="1"
                     size="xs"
                     zIndex="1"
-                    transform="translateX(calc(-100% - 4px))"
                     onClick={() => setIsManagingLocalPalettes(current => !current)}
                 >
                     {isManagingLocalPalettes ? 'Palette' : 'Manage local palettes'}
