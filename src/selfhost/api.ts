@@ -1,4 +1,3 @@
-import { Theme } from '../constants/constants';
 import { SELFHOST_API_PATH } from './config';
 
 export interface SelfHostedSaveSummary {
@@ -28,10 +27,17 @@ export interface SelfHostedProfile {
     language?: string;
 }
 
-export interface SelfHostedThemePreset {
+export interface SelfHostedPaletteLine {
     id: string;
-    name: string;
-    theme: Theme;
+    name: Record<string, string>;
+    colour: `#${string}`;
+    fg?: '#000' | '#fff';
+}
+
+export interface SelfHostedPaletteCity {
+    id: string;
+    name: Record<string, string>;
+    lines: SelfHostedPaletteLine[];
 }
 
 export class SelfHostedApiError extends Error {
@@ -136,11 +142,11 @@ export const publishSelfHostedSvg = async (password: string, id: string, revisio
         body: JSON.stringify({ revision, svg }),
     });
 
-export const listSelfHostedThemePresets = async (password: string) =>
-    request<{ presets: SelfHostedThemePreset[] }>('/themes', password);
+export const listSelfHostedPaletteCities = async (password: string) =>
+    request<{ cities: SelfHostedPaletteCity[] }>('/palette-cities', password);
 
-export const replaceSelfHostedThemePresets = async (password: string, presets: SelfHostedThemePreset[]) =>
-    request<{ presets: SelfHostedThemePreset[] }>('/themes', password, {
+export const replaceSelfHostedPaletteCities = async (password: string, cities: SelfHostedPaletteCity[]) =>
+    request<{ cities: SelfHostedPaletteCity[] }>('/palette-cities', password, {
         method: 'PUT',
-        body: JSON.stringify({ presets }),
+        body: JSON.stringify({ cities }),
     });

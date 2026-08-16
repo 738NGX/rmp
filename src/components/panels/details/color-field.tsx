@@ -9,7 +9,6 @@ import { saveGraph } from '../../../redux/param/param-slice';
 import { refreshEdgesThunk, refreshNodesThunk } from '../../../redux/runtime/runtime-slice';
 import { usePaletteTheme } from '../../../util/hooks';
 import ThemeButton from '../theme-button';
-import CustomThemePicker from '../../../selfhost/custom-theme-picker';
 
 /**
  * An Attribute that have a color field.
@@ -178,7 +177,6 @@ export const ColorField = (props: { type: NodeType | LineStyleType; colorKey?: s
     return (
         <HStack>
             <ThemeButton theme={theme} onClick={requestThemeChange} />
-            <CustomThemePicker onSelect={handleChangeColor} />
         </HStack>
     );
 };

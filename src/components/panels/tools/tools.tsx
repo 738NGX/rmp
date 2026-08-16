@@ -41,7 +41,6 @@ import { linePaths, lineStyles } from '../../svgs/lines/lines';
 import miscNodes from '../../svgs/nodes/misc-nodes';
 import stations from '../../svgs/stations/stations';
 import ThemeButton from '../theme-button';
-import CustomThemePicker from '../../../selfhost/custom-theme-picker';
 import FavoriteButton from './favorite-button';
 import { localizedLineStyles, localizedMiscNodes, localizedStations } from './localized-order';
 import { LineStyleLeftIcon } from './line-style-left-icon';
@@ -232,7 +231,6 @@ const ToolsPanel = () => {
                         <AccordionPanel sx={accordionPanelStyle}>
                             <Flex>
                                 <ThemeButton theme={theme} onClick={requestThemeChange} />
-                                <CustomThemePicker onSelect={handleThemeApplied} />
                                 <Text fontWeight="600" pl="1" alignSelf="center">
                                     {isTextShown ? t('color') : undefined}
                                 </Text>

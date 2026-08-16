@@ -38,6 +38,7 @@ export default function WindowHeader() {
         const applyLanguage = (language?: string) => {
             if ((['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'] as string[]).includes(language ?? '')) {
                 localStorage.setItem('rmp__selfhost__language', language!);
+                rmgRuntime.setLanguage(language!);
                 void rmgRuntime.getI18nInstance().changeLanguage(language as LanguageCode);
             }
         };
@@ -59,6 +60,7 @@ export default function WindowHeader() {
     }, [environment]);
 
     const handleChangeLanguage = (language: LanguageCode) => {
+        rmgRuntime.setLanguage(language);
         rmgRuntime.getI18nInstance().changeLanguage(language);
         if (isSelfHosted) {
             localStorage.setItem('rmp__selfhost__language', language);

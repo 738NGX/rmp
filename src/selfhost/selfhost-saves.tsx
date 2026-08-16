@@ -90,6 +90,7 @@ export default function SelfHostedSaves() {
     const [error, setError] = React.useState<string | null>(null);
     const [isConflict, setIsConflict] = React.useState(false);
     const [isBusy, setIsBusy] = React.useState(false);
+    const [isConnected, setIsConnected] = React.useState(false);
     const loadingRef = React.useRef(false);
     const activeSaveRef = React.useRef<SelfHostedSaveSummary | null>(null);
     const deviceId = React.useMemo(getDeviceId, []);
@@ -115,7 +116,7 @@ export default function SelfHostedSaves() {
         return saveResult.saves;
     }, [password]);
 
-    const authenticate = async () => {
+    const authenticate = React.useCallback(async () => {
         setError(null);
         setIsBusy(true);
         try {
@@ -126,13 +127,19 @@ export default function SelfHostedSaves() {
             // not mark the remembered save active and risk autosaving the empty
             // canvas over it; the user explicitly loads it from the list.
             if (!loaded.some(save => save.id === activeSaveRef.current?.id)) setActiveSave(null);
+            setIsConnected(true);
         } catch (err) {
             sessionStorage.removeItem(PASSWORD_KEY);
+            setIsConnected(false);
             setError(err instanceof Error ? err.message : 'Unable to connect to the save service.');
         } finally {
             setIsBusy(false);
         }
-    };
+    }, [password, refreshSaves]);
+
+    React.useEffect(() => {
+        if (password && sessionStorage.getItem(PASSWORD_KEY) && !isConnected) void authenticate();
+    }, [authenticate, isConnected, password]);
 
     const releaseActiveLease = React.useCallback(
         async (save = activeSaveRef.current) => {
@@ -424,7 +431,7 @@ export default function SelfHostedSaves() {
                                     )}
                                 </Alert>
                             )}
-                            {!sessionStorage.getItem(PASSWORD_KEY) ? (
+                            {!isConnected ? (
                                 <FormControl>
                                     <FormLabel>Save service password</FormLabel>
                                     <Input
@@ -613,7 +620,7 @@ export default function SelfHostedSaves() {
                         </Stack>
                     </ModalBody>
                     <ModalFooter>
-                        {!sessionStorage.getItem(PASSWORD_KEY) && (
+                        {!isConnected && (
                             <Button colorScheme="blue" onClick={() => void authenticate()} isLoading={isBusy}>
                                 Connect
                             </Button>

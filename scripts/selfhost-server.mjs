@@ -30,7 +30,7 @@ const port = Number.isInteger(config.port) && config.port > 0 && config.port < 6
 const distDir = resolve(rootDir, config.distDir ?? 'dist');
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
-const themePresetsPath = resolve(dataDir, 'theme-presets.json');
+const paletteCitiesPath = resolve(dataDir, 'palette-cities.json');
 const profilePath = resolve(dataDir, 'profile.json');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
 const LEASE_DURATION_MS = 45_000;
@@ -90,6 +90,12 @@ const serveUpstreamCompanion = async (request, response, url) => {
     };
     response.writeHead(upstreamResponse.status, headers);
     response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+};
+
+const fetchUpstreamJson = async pathname => {
+    const upstreamResponse = await fetch(new URL(pathname, UPSTREAM_ORIGIN));
+    if (!upstreamResponse.ok) throw new Error(`Unable to fetch palette resource (${upstreamResponse.status}).`);
+    return await upstreamResponse.json();
 };
 
 const hasValidCredentials = request => {
@@ -152,12 +158,12 @@ const readProfile = async () => {
     }
 };
 
-const readThemePresets = async () => {
+const readPaletteCities = async () => {
     try {
-        const savedPresets = JSON.parse(await readFile(themePresetsPath, 'utf8'));
-        return Array.isArray(savedPresets.presets) ? savedPresets : { version: 1, presets: [] };
+        const savedCities = JSON.parse(await readFile(paletteCitiesPath, 'utf8'));
+        return Array.isArray(savedCities.cities) ? savedCities : { version: 1, cities: [] };
     } catch (error) {
-        if (error?.code === 'ENOENT') return { version: 1, presets: [] };
+        if (error?.code === 'ENOENT') return { version: 1, cities: [] };
         throw error;
     }
 };
@@ -180,16 +186,27 @@ const isValidDeviceId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{8,128}$/
 const validLanguage = language => ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'].includes(language);
 const validSvg = svg =>
     typeof svg === 'string' && svg.length > 0 && svg.length <= MAX_BODY_BYTES && /^<svg[\s>]/i.test(svg.trim());
-const isValidThemePreset = preset =>
-    preset &&
-    isValidId(preset.id) &&
-    validName(preset.name) &&
-    Array.isArray(preset.theme) &&
-    preset.theme.length === 4 &&
-    typeof preset.theme[0] === 'string' &&
-    typeof preset.theme[1] === 'string' &&
-    /^#[0-9a-fA-F]{6}$/.test(preset.theme[2]) &&
-    ['#000', '#fff'].includes(preset.theme[3]);
+const validTranslation = value =>
+    value &&
+    typeof value === 'object' &&
+    validName(value.en) &&
+    Object.entries(value).every(([language, name]) => validLanguage(language) && validName(name));
+const isValidPaletteLine = line =>
+    line &&
+    typeof line.id === 'string' &&
+    /^[a-zA-Z0-9_-]{1,64}$/.test(line.id) &&
+    validTranslation(line.name) &&
+    /^#[0-9a-fA-F]{6}$/.test(line.colour) &&
+    (line.fg === undefined || ['#000', '#fff'].includes(line.fg));
+const isValidPaletteCity = city =>
+    city &&
+    typeof city.id === 'string' &&
+    /^selfhost-[a-zA-Z0-9_-]{8,64}$/.test(city.id) &&
+    validTranslation(city.name) &&
+    Array.isArray(city.lines) &&
+    city.lines.length <= 100 &&
+    city.lines.every(isValidPaletteLine) &&
+    new Set(city.lines.map(line => line.id)).size === city.lines.length;
 
 const getLease = id => {
     const lease = leases.get(id);
@@ -207,29 +224,61 @@ const acquireLease = (id, deviceId) => {
 
 const hasLease = (id, deviceId) => getLease(id)?.deviceId === deviceId;
 
-const handleThemePresets = async (request, response) => {
-    if (!hasValidCredentials(request)) {
-        response.setHeader('WWW-Authenticate', 'Basic realm="RMP self-hosted saves"');
-        return sendError(response, 401, 'Authentication failed.');
-    }
-
+const handlePaletteCities = async (request, response) => {
+    if (!requireAuthentication(request, response)) return;
     if (request.method === 'GET') {
-        const savedPresets = await readThemePresets();
-        return sendJson(response, 200, { presets: savedPresets.presets });
+        const savedCities = await readPaletteCities();
+        return sendJson(response, 200, { cities: savedCities.cities });
     }
 
     if (request.method === 'PUT') {
         const body = await readJsonBody(request);
-        if (!Array.isArray(body.presets) || body.presets.length > 100 || !body.presets.every(isValidThemePreset))
-            return sendError(response, 400, 'Invalid custom theme presets.');
-        if (new Set(body.presets.map(preset => preset.id)).size !== body.presets.length)
-            return sendError(response, 400, 'Duplicate custom theme preset ids.');
-        const savedPresets = { version: 1, presets: body.presets };
-        await withMutationLock(() => writeJsonAtomically(themePresetsPath, savedPresets));
-        return sendJson(response, 200, { presets: savedPresets.presets });
+        if (!Array.isArray(body.cities) || body.cities.length > 30 || !body.cities.every(isValidPaletteCity))
+            return sendError(response, 400, 'Invalid self-hosted palette cities.');
+        if (new Set(body.cities.map(city => city.id)).size !== body.cities.length)
+            return sendError(response, 400, 'Duplicate self-hosted palette city ids.');
+        const savedCities = { version: 1, cities: body.cities };
+        await withMutationLock(() => writeJsonAtomically(paletteCitiesPath, savedCities));
+        return sendJson(response, 200, { cities: savedCities.cities });
     }
 
     return sendError(response, 405, 'Method not allowed.');
+};
+
+const servePaletteResource = async (response, url) => {
+    const cities = (await readPaletteCities()).cities;
+    if (url.pathname === '/rmg-palette/resources/city-config.compressed.json') {
+        const upstreamCities = await fetchUpstreamJson(url.pathname);
+        const selfHostedCities = cities.map(city => [
+            city.id,
+            'selfhost',
+            [city.name.en, city.name['zh-Hans'] ?? city.name.en, city.name['zh-Hant'] ?? city.name.en],
+            Object.fromEntries(
+                Object.entries(city.name).filter(([language]) => !['en', 'zh-Hans', 'zh-Hant'].includes(language))
+            ),
+        ]);
+        return sendJson(response, 200, [...upstreamCities, ...selfHostedCities]);
+    }
+    if (url.pathname === '/rmg-palette/resources/country-config.compressed.json') {
+        const upstreamCountries = await fetchUpstreamJson(url.pathname);
+        const selfHostedCountry = [
+            'selfhost',
+            ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'],
+            ['Self-hosted', '自托管', '自託管'],
+            { ja: 'セルフホスト', ko: '자체 호스팅' },
+        ];
+        return sendJson(response, 200, [
+            ...upstreamCountries.filter(country => country[0] !== 'selfhost'),
+            selfHostedCountry,
+        ]);
+    }
+    const paletteMatch = /^\/rmg-palette\/resources\/palettes\/(selfhost-[a-zA-Z0-9_-]+)\.json$/.exec(url.pathname);
+    if (paletteMatch) {
+        const city = cities.find(entry => entry.id === paletteMatch[1]);
+        if (!city) return sendError(response, 404, 'Palette not found.');
+        return sendJson(response, 200, city.lines);
+    }
+    return false;
 };
 
 const requireAuthentication = (request, response) => {
@@ -551,10 +600,12 @@ createServer(async (request, response) => {
         if (url.pathname === '/healthz') return sendJson(response, 200, { ok: true });
         const publicSvg = /^\/share\/([a-zA-Z0-9_-]+)\.svg$/.exec(url.pathname);
         if (request.method === 'GET' && publicSvg) return await servePublicSvg(response, publicSvg[1]);
-        if (url.pathname === '/api/rmp-saves/themes') return await handleThemePresets(request, response);
+        if (url.pathname === '/api/rmp-saves/palette-cities') return await handlePaletteCities(request, response);
         if (url.pathname.startsWith('/api/rmp-saves/groups')) return await handleGroups(request, response, url);
         if (url.pathname === '/api/rmp-saves/profile') return await handleProfile(request, response);
         if (url.pathname.startsWith('/api/rmp-saves')) return await handleApi(request, response, url);
+        if (url.pathname.startsWith('/rmg-palette/resources/') && (await servePaletteResource(response, url)) !== false)
+            return;
         if (proxiedPathPrefixes.some(prefix => url.pathname.startsWith(prefix)))
             return await serveUpstreamCompanion(request, response, url);
         if (url.pathname === '/rmp') {

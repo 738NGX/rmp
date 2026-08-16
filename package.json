@@ -75,7 +75,8 @@
         "lint": "eslint ./src",
         "lint:fix": "eslint ./src --fix",
         "preview": "vite preview",
-        "selfhost:server": "node scripts/selfhost-server.mjs"
+        "selfhost:server": "node scripts/selfhost-server.mjs",
+        "selfhost:migrate": "node scripts/migrate-selfhost-data.mjs"
     },
     "version": "6.0.16"
 }

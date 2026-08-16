@@ -23,7 +23,7 @@ requires it at `/rmp/info.json`; do not remove it from a deployment.
 
 These values, including the password, are set in `rmp-selfhost.config.json`; no environment variables are required. Keep that file out of Git and limit it to the service account (`chmod 600 rmp-selfhost.config.json` on Linux).
 
-Back up the complete data directory. It contains `index.json`, `profile.json`, one JSON and (when published) one SVG file per save, plus `theme-presets.json` for custom colour presets. Writes use a temporary file followed by an atomic rename and are serialized by the server. The service
+Back up the complete data directory. It contains `index.json`, `profile.json`, one JSON and (when published) one SVG file per save, plus `palette-cities.json` for local colour palettes. Writes use a temporary file followed by an atomic rename and are serialized by the server. The service
 does not provide account recovery; losing the password prevents access to the
 saves, so keep it in your server's secret manager.
 
@@ -45,9 +45,10 @@ saves, so keep it in your server's secret manager.
   **Disable** to revoke it; publishing again updates the SVG at the same URL.
   The server sends SVGs with a sandboxed Content Security Policy. Public SVGs
   may still reference external images that were already present in the map.
-- Custom colour presets are named colours stored on the self-hosted service.
-  They are available from the drawing colour control and standard colour fields,
-  and are shared by every device that connects with the save-service password.
+- Local colour palettes define cities and their line-colour lists. Use **Manage
+  local palettes** within the normal colour picker, then choose the new city
+  from that same picker. The city list is intentionally available to the
+  unauthenticated palette iframe; editing it requires the save-service password.
 - Uploaded local images are bundled into the cloud-save JSON. Images hosted by
   the original Rail Map service remain external references.
 - This mode removes RMP's dependency on the original subscription endpoint, but
@@ -57,6 +58,26 @@ saves, so keep it in your server's secret manager.
   required by RMP's colour picker. It also proxies the companion paths used by
   upstream RMP (`/styles/`, `/fonts/`, `/rmg/`, and `/rmp-gallery/`). A fully
   offline deployment must host compatible copies of those apps instead.
+
+## Manually migrating legacy saves
+
+The grouped-save format is an explicit migration, never an automatic one. Stop
+the service first, then run a validation-only dry run:
+
+```bash
+npm run selfhost:migrate
+```
+
+If it reports no validation errors, apply it:
+
+```bash
+pm2 stop rmp-selfhost
+npm run selfhost:migrate -- --apply
+pm2 start rmp-selfhost
+```
+
+The command makes a timestamped `index.legacy-*.json` backup, preserves every
+save file and revision, and places all migrated saves in **Ungrouped**.
 
 ## Updating from upstream
 
