@@ -720,6 +720,58 @@ const servePublicSvg = async (response, token) => {
     }
 };
 
+/** A no-login diagnostic page for a public SVG; useful on mobile without DevTools. */
+const servePublicSvgFontDiagnostic = async (response, token) => {
+    if (!/^[a-zA-Z0-9_-]{32,128}$/.test(token)) return sendError(response, 404, 'Not found.');
+    const index = await readIndex();
+    const save = index.saves.find(
+        entry => entry.share?.enabled && entry.share.token === token && entry.share.publishedRevision
+    );
+    if (!save) return sendError(response, 404, 'Not found.');
+    const svgUrl = `/share/${token}.svg`;
+    const html = `<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RMP shared SVG font diagnostic</title>
+<style>body{margin:16px;font:16px system-ui,sans-serif;background:#111;color:#eee}#result{white-space:pre-wrap;padding:12px;background:#222;border-radius:8px}iframe{width:100%;height:280px;border:1px solid #555;margin-top:16px;background:white}</style>
+<h1>Shared SVG font diagnostic</h1><p>This page tests the exact public SVG in this browser.</p><div id="result">Loading…</div><iframe id="svg" title="Published SVG" src="${svgUrl}"></iframe>
+<script>
+const output = document.getElementById('result');
+const frame = document.getElementById('svg');
+const report = value => output.textContent = JSON.stringify(value, null, 2);
+frame.addEventListener('load', async () => {
+  const svgDocument = frame.contentDocument;
+  if (!svgDocument) return report({ status: 'cannot-inspect', detail: 'This browser does not expose the SVG document to the diagnostic page.' });
+  try {
+    if (svgDocument.fonts) await svgDocument.fonts.ready;
+    const texts = [...svgDocument.querySelectorAll('text')];
+    const targets = texts.filter(text => text.getAttribute('style')?.includes('RMP Share Sans'));
+    const target = targets[0];
+    const computedFont = target ? svgDocument.defaultView.getComputedStyle(target).fontFamily : null;
+    const fontLoaded = svgDocument.fonts?.check("16px 'RMP Share Sans'", 'English 0123456789') ?? null;
+    report({
+      status: 'inspected',
+      embeddedWoff2: svgDocument.documentElement.outerHTML.includes('data:font/woff2;base64,'),
+      latinTextTargets: targets.length,
+      sampleText: target?.textContent ?? null,
+      inlineStyle: target?.getAttribute('style') ?? null,
+      computedFont,
+      fontLoaded,
+      conclusion: !targets.length ? 'No English text was matched.' : !fontLoaded ? 'The embedded font is not usable in this SVG viewer.' : !computedFont?.includes('RMP Share Sans') ? 'Another style overrides the embedded font.' : 'The browser reports that the embedded font is active.'
+    });
+  } catch (error) {
+    report({ status: 'error', detail: error instanceof Error ? error.message : String(error) });
+  }
+});
+</script></html>`;
+    response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'",
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+    });
+    response.end(html);
+};
+
 await mkdir(dataDir, { recursive: true });
 createServer(async (request, response) => {
     try {
@@ -727,6 +779,9 @@ createServer(async (request, response) => {
         if (url.pathname === '/healthz') return sendJson(response, 200, { ok: true });
         const publicSvg = /^\/share\/([a-zA-Z0-9_-]+)\.svg$/.exec(url.pathname);
         if (request.method === 'GET' && publicSvg) return await servePublicSvg(response, publicSvg[1]);
+        const publicSvgDiagnostic = /^\/share\/([a-zA-Z0-9_-]+)\.debug$/.exec(url.pathname);
+        if (request.method === 'GET' && publicSvgDiagnostic)
+            return await servePublicSvgFontDiagnostic(response, publicSvgDiagnostic[1]);
         if (url.pathname === '/api/rmp-saves/palette-cities') return await handlePaletteCities(request, response);
         if (url.pathname.startsWith('/api/rmp-saves/groups')) return await handleGroups(request, response, url);
         if (url.pathname === '/api/rmp-saves/profile') return await handleProfile(request, response);

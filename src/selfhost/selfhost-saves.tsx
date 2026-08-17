@@ -466,6 +466,7 @@ export default function SelfHostedSaves() {
         activeSave?.share?.enabled && activeSave.share.token
             ? `${window.location.origin}/share/${activeSave.share.token}.svg`
             : undefined;
+    const shareDiagnosticUrl = shareUrl?.replace(/\.svg$/, '.debug');
     const groupedSaves = [{ id: '', name: 'Ungrouped' }, ...groups].map(group => ({
         ...group,
         saves: saves.filter(save => (save.groupId ?? '') === group.id),
@@ -628,6 +629,17 @@ export default function SelfHostedSaves() {
                                                             rel="noreferrer"
                                                         >
                                                             Open SVG
+                                                        </Button>
+                                                    )}
+                                                    {shareDiagnosticUrl && activeSave.share?.publishedRevision && (
+                                                        <Button
+                                                            as="a"
+                                                            size="sm"
+                                                            href={shareDiagnosticUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                        >
+                                                            Check font
                                                         </Button>
                                                     )}
                                                 </HStack>
