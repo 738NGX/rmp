@@ -705,7 +705,9 @@ const servePublicSvg = async (response, token) => {
     if (!save) return sendError(response, 404, 'Not found.');
     try {
         response.writeHead(200, {
-            'Cache-Control': 'public, max-age=300',
+            // A share URL is stable while its SVG may be republished. Clients must
+            // therefore revalidate instead of treating the previous revision as fresh.
+            'Cache-Control': 'public, max-age=0, must-revalidate',
             'Content-Security-Policy':
                 "default-src 'none'; style-src 'unsafe-inline'; img-src data: https: http:; font-src data:",
             'Content-Type': 'image/svg+xml; charset=utf-8',
