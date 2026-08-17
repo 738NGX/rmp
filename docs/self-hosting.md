@@ -50,7 +50,9 @@ saves, so keep it in your server's secret manager.
   The server strips executable SVG content and sends a restrictive static-content
   policy. Shared SVGs embed a small Latin fallback font, while Japanese labels
   use the viewer's system fallback to keep files small. Use **Check font** next
-  to a published SVG to diagnose the current browser without remote DevTools.
+  to a published SVG to compare the rendered width of the embedded-font stack
+  and its system fallback on the current browser, without remote DevTools. The
+  test runs only in the diagnostic page and never changes the public SVG.
   Public SVGs may still reference external images that were already present in
   the map.
 - Local colour palettes define cities and their line-colour lists. Use **Manage

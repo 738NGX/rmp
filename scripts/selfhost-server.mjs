@@ -748,6 +748,27 @@ frame.addEventListener('load', async () => {
     const target = targets[0];
     const computedFont = target ? svgDocument.defaultView.getComputedStyle(target).fontFamily : null;
     const fontLoaded = svgDocument.fonts?.check("16px 'RMP Share Sans'", 'English 0123456789') ?? null;
+    // CSSOM reports the requested font stack, rather than the face ultimately
+    // used for each glyph. Measure a temporary, off-canvas SVG text node against
+    // its explicit fallback instead. It is removed before the map is displayed,
+    // so this diagnostic never changes the published SVG or its byte size.
+    const probeText = 'WMWMWM iiiiii 0123456789 Nijiguchikyūjō Mae Ō Ū';
+    const probeWidth = fontFamily => {
+      const probe = svgDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
+      probe.setAttribute('x', '-10000');
+      probe.setAttribute('y', '-10000');
+      probe.setAttribute('opacity', '0');
+      probe.setAttribute('style', 'font-family:' + fontFamily + ';font-size:128px;font-weight:400;letter-spacing:normal');
+      probe.textContent = probeText;
+      svgDocument.documentElement.append(probe);
+      const width = probe.getComputedTextLength();
+      probe.remove();
+      return Number.isFinite(width) ? Math.round(width * 100) / 100 : null;
+    };
+    const embeddedWidth = probeWidth("'RMP Share Sans', Arial, sans-serif");
+    const fallbackWidth = probeWidth('Arial, sans-serif');
+    const metricDelta = embeddedWidth === null || fallbackWidth === null ? null : Math.abs(embeddedWidth - fallbackWidth);
+    const embeddedFontRendered = metricDelta !== null && metricDelta > 0.1;
     report({
       status: 'inspected',
       embeddedWoff2: svgDocument.documentElement.outerHTML.includes('data:font/woff2;base64,'),
@@ -756,7 +777,14 @@ frame.addEventListener('load', async () => {
       inlineStyle: target?.getAttribute('style') ?? null,
       computedFont,
       fontLoaded,
-      conclusion: !targets.length ? 'No English text was matched.' : !fontLoaded ? 'The embedded font is not usable in this SVG viewer.' : !computedFont?.includes('RMP Share Sans') ? 'Another style overrides the embedded font.' : 'The browser reports that the embedded font is active.'
+      metricProbe: {
+        text: probeText,
+        embeddedWidth,
+        fallbackWidth,
+        delta: metricDelta,
+        embeddedFontRendered,
+      },
+      conclusion: !targets.length ? 'No English text was matched.' : !fontLoaded ? 'The embedded font is not usable in this SVG viewer.' : !computedFont?.includes('RMP Share Sans') ? 'Another style overrides the embedded font.' : !embeddedFontRendered ? 'The embedded font stack has the same measured width as its fallback. This viewer is rendering the system fallback.' : 'Measured text metrics differ from the fallback. This viewer is rendering the embedded font.'
     });
   } catch (error) {
     report({ status: 'error', detail: error instanceof Error ? error.message : String(error) });
