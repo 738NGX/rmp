@@ -4,6 +4,14 @@ const SHARE_SANS_FAMILY = 'RMP Share Sans';
 const SYSTEM_SANS_FAMILIES = new Set(['arial,sans-serif', 'helvetica,arial,sans-serif']);
 const normaliseFontFamily = (family: string) => family.toLowerCase().replaceAll(/\s+/g, '');
 const shareSansStack = `'${SHARE_SANS_FAMILY}', Arial, sans-serif`;
+// Public SVGs do not embed CJK fonts. Match the known, sans-serif RMP template
+// stacks and use platform-native CJK sans fonts for each language instead.
+// Do not include the MTR Chinese stack here: it deliberately ends in serif.
+const cjkSystemSansCss = [
+    '[font-family*="M PLUS 2"]{font-family:"Noto Sans CJK JP","Noto Sans JP","Hiragino Sans","Yu Gothic",Meiryo,sans-serif!important}',
+    '[font-family*="SimHei"]{font-family:"Noto Sans CJK SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif!important}',
+    '[font-family*="Taipei Sans TC Beta"]{font-family:"Noto Sans CJK TC","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif!important}',
+].join('');
 
 let shareSansCss: Promise<string> | undefined;
 
@@ -33,7 +41,7 @@ export const embedSelfHostedShareFallbackFont = async (elem: SVGSVGElement) => {
             elem.querySelector(':scope > defs') ?? document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         if (!defs.parentNode) elem.prepend(defs);
         const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-        style.textContent = await getShareSansCss();
+        style.textContent = (await getShareSansCss()) + cjkSystemSansCss;
         defs.prepend(style);
         elem.querySelectorAll<SVGTextElement>('[font-family]').forEach(text => {
             const family = text.getAttribute('font-family');
