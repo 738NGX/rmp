@@ -3,6 +3,7 @@ import { logger } from '@railmapgen/rmg-runtime';
 const SHARE_SANS_FAMILY = 'RMP Share Sans';
 const SYSTEM_SANS_FAMILIES = new Set(['arial,sans-serif', 'helvetica,arial,sans-serif']);
 const normaliseFontFamily = (family: string) => family.toLowerCase().replaceAll(/\s+/g, '');
+const shareSansStack = `'${SHARE_SANS_FAMILY}', Arial, sans-serif`;
 
 let shareSansCss: Promise<string> | undefined;
 
@@ -27,13 +28,16 @@ const getShareSansCss = () => {
 /** Make default Latin labels portable without embedding a full CJK font. */
 export const embedSelfHostedShareFallbackFont = async (elem: SVGSVGElement) => {
     try {
+        const defs =
+            elem.querySelector(':scope > defs') ?? document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        if (!defs.parentNode) elem.prepend(defs);
         const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
         style.textContent = await getShareSansCss();
-        elem.prepend(style);
+        defs.prepend(style);
         elem.querySelectorAll<SVGTextElement>('[font-family]').forEach(text => {
             const family = text.getAttribute('font-family');
             if (family && SYSTEM_SANS_FAMILIES.has(normaliseFontFamily(family)))
-                text.setAttribute('font-family', `'${SHARE_SANS_FAMILY}', ${family}`);
+                text.style.setProperty('font-family', shareSansStack, 'important');
         });
     } catch (error) {
         // Sharing should remain available even if the optional fallback fails.

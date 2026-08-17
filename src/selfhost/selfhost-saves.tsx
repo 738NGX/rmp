@@ -438,12 +438,9 @@ export default function SelfHostedSaves() {
             // Self-hosted public links are published by the deployment owner,
             // so never append RMP attribution. Remove any stale cloned node as
             // an additional guarantee before uploading the static SVG.
-            // Include loaded specialist fonts (notably M Plus 2 for Japanese),
-            // then add a tiny portable Latin fallback for default labels.
-            // Runtime font loading is asynchronous; wait before asking it to
-            // serialize the fonts into the standalone public SVG.
-            await document.fonts.ready;
-            const { elem } = await makeRenderReadySVGElement(window.graph, true, false, languages, false, 2);
+            // Keep public SVGs small: only the tiny portable Latin fallback is
+            // embedded. Japanese labels use the viewer's system fallback.
+            const { elem } = await makeRenderReadySVGElement(window.graph, true, true, languages, false, 2);
             await embedSelfHostedShareFallbackFont(elem);
             elem.querySelector('#rmp_info')?.remove();
             const svg = elem.outerHTML.replace(/&nbsp;/g, ' ').replace(/\p{Cc}/gu, '');
