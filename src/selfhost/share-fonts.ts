@@ -1,7 +1,8 @@
 import { logger } from '@railmapgen/rmg-runtime';
 
 const SHARE_SANS_FAMILY = 'RMP Share Sans';
-const SYSTEM_SANS_FAMILIES = new Set(['arial, sans-serif', 'helvetica, arial, sans-serif']);
+const SYSTEM_SANS_FAMILIES = new Set(['arial,sans-serif', 'helvetica,arial,sans-serif']);
+const normaliseFontFamily = (family: string) => family.toLowerCase().replaceAll(/\s+/g, '');
 
 let shareSansCss: Promise<string> | undefined;
 
@@ -31,7 +32,7 @@ export const embedSelfHostedShareFallbackFont = async (elem: SVGSVGElement) => {
         elem.prepend(style);
         elem.querySelectorAll<SVGTextElement>('[font-family]').forEach(text => {
             const family = text.getAttribute('font-family');
-            if (family && SYSTEM_SANS_FAMILIES.has(family.toLowerCase()))
+            if (family && SYSTEM_SANS_FAMILIES.has(normaliseFontFamily(family)))
                 text.setAttribute('font-family', `'${SHARE_SANS_FAMILY}', ${family}`);
         });
     } catch (error) {

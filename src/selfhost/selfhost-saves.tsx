@@ -433,13 +433,16 @@ export default function SelfHostedSaves() {
         try {
             const saved = await persistActiveSave();
             if (!saved) return;
-            const shared = saved.share ? saved : (await enableSelfHostedShare(password, saved.id)).save;
+            const shared = saved.share?.enabled ? saved : (await enableSelfHostedShare(password, saved.id)).save;
             replaceSave(shared);
             // Self-hosted public links are published by the deployment owner,
             // so never append RMP attribution. Remove any stale cloned node as
             // an additional guarantee before uploading the static SVG.
             // Include loaded specialist fonts (notably M Plus 2 for Japanese),
             // then add a tiny portable Latin fallback for default labels.
+            // Runtime font loading is asynchronous; wait before asking it to
+            // serialize the fonts into the standalone public SVG.
+            await document.fonts.ready;
             const { elem } = await makeRenderReadySVGElement(window.graph, true, false, languages, false, 2);
             await embedSelfHostedShareFallbackFont(elem);
             elem.querySelector('#rmp_info')?.remove();
