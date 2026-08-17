@@ -48,11 +48,13 @@ saves, so keep it in your server's secret manager.
   URL exposes only the rendered SVG, never the editable save JSON. Use
   **Disable** to revoke it; publishing again updates the SVG at the same URL.
   The server strips executable SVG content and sends a restrictive static-content
-  policy. Shared SVGs embed a small Latin fallback font, while Japanese labels
-  use the viewer's system fallback to keep files small. Use **Check font** next
-  to a published SVG to compare the rendered width of the embedded-font stack
-  and its system fallback on the current browser, without remote DevTools. The
-  test runs only in the diagnostic page and never changes the public SVG.
+  policy. Shared SVGs embed a 17 KB Roboto subset for English, numbers and
+  Japanese romanisation (including macrons), while CJK labels keep their
+  original template font stack. Its Apache 2.0 license is included at
+  `public/fonts/LICENSE-Roboto.txt`. Use **Check font** next to a published SVG
+  to compare the rendered width of the embedded-font stack and its system
+  fallback on the current browser, without remote DevTools. The test runs only
+  in the diagnostic page and never changes the public SVG.
   Public SVGs may still reference external images that were already present in
   the map.
 - Local colour palettes define cities and their line-colour lists. Use **Manage
