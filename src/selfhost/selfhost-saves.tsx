@@ -61,6 +61,7 @@ import {
 } from './api';
 import { isSelfHosted } from './config';
 import { stringifySelfHostedSave } from './save-serializer';
+import { embedSelfHostedShareFallbackFont } from './share-fonts';
 
 const PASSWORD_KEY = 'rmp__selfhost__password';
 const ACTIVE_SAVE_KEY = 'rmp__selfhost__active_save';
@@ -437,7 +438,10 @@ export default function SelfHostedSaves() {
             // Self-hosted public links are published by the deployment owner,
             // so never append RMP attribution. Remove any stale cloned node as
             // an additional guarantee before uploading the static SVG.
-            const { elem } = await makeRenderReadySVGElement(window.graph, true, true, languages, false, 2);
+            // Include loaded specialist fonts (notably M Plus 2 for Japanese),
+            // then add a tiny portable Latin fallback for default labels.
+            const { elem } = await makeRenderReadySVGElement(window.graph, true, false, languages, false, 2);
+            await embedSelfHostedShareFallbackFont(elem);
             elem.querySelector('#rmp_info')?.remove();
             const svg = elem.outerHTML.replace(/&nbsp;/g, ' ').replace(/\p{Cc}/gu, '');
             replaceSave((await publishSelfHostedSvg(password, shared.id, shared.revision, svg)).save);

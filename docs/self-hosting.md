@@ -48,8 +48,10 @@ saves, so keep it in your server's secret manager.
   URL exposes only the rendered SVG, never the editable save JSON. Use
   **Disable** to revoke it; publishing again updates the SVG at the same URL.
   The server strips executable SVG content and sends a restrictive static-content
-  policy. Public SVGs may still reference external images that were already
-  present in the map.
+  policy. Shared SVGs embed a small Latin fallback font and any specialist font
+  used by the map (for example Japanese M Plus 2), so they render consistently
+  across devices. Public SVGs may still reference external images that were
+  already present in the map.
 - Local colour palettes define cities and their line-colour lists. Use **Manage
   local palettes** within the normal colour picker, then choose the new city
   from that same picker. The city list is intentionally available to the
