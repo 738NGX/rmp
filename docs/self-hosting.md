@@ -23,7 +23,7 @@ requires it at `/rmp/info.json`; do not remove it from a deployment.
 
 These values, including the password, are set in `rmp-selfhost.config.json`; no environment variables are required. Keep that file out of Git and limit it to the service account (`chmod 600 rmp-selfhost.config.json` on Linux).
 
-Back up the complete data directory. It contains `index.json`, `profile.json`, one JSON and (when published) one SVG file per save, plus `palette-cities.json` for local colour palettes. Writes use a temporary file followed by an atomic rename and are serialized by the server. The service
+Back up the complete data directory. It contains `index.json`, `profile.json`, one JSON and (when published) one SVG file per save, plus `palette-cities.json` for local colour palettes and `master-library.json` for local master-node templates. Writes use a temporary file followed by an atomic rename and are serialized by the server. The service
 does not provide account recovery; losing the password prevents access to the
 saves, so keep it in your server's secret manager.
 
@@ -62,6 +62,12 @@ saves, so keep it in your server's secret manager.
   local palettes** within the normal colour picker, then choose the new city
   from that same picker. The city list is intentionally available to the
   unauthenticated palette iframe; editing it requires the save-service password.
+- Local master-node templates retain reusable master JSON on the server. Open
+  **Manage all master nodes**, use the save button beside a master type, then
+  name and save the template. The normal **Upload master parameter** dialog can
+  later select it directly from **Local master library**. Templates are private
+  to the save-service password, capped at 50 entries and validated before they
+  are stored; they are separate from individual map saves.
 - Uploaded local images are bundled into the cloud-save JSON. Images hosted by
   the original Rail Map service remain external references.
 - This mode removes RMP's dependency on the original subscription endpoint, but

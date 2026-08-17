@@ -31,11 +31,14 @@ const distDir = resolve(rootDir, config.distDir ?? 'dist');
 const dataDir = resolve(rootDir, config.dataDir ?? 'rmp-data');
 const indexPath = resolve(dataDir, 'index.json');
 const paletteCitiesPath = resolve(dataDir, 'palette-cities.json');
+const masterLibraryPath = resolve(dataDir, 'master-library.json');
 const profilePath = resolve(dataDir, 'profile.json');
 const historyRootPath = resolve(dataDir, 'history');
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
 const LEASE_DURATION_MS = 45_000;
 const HISTORY_LIMIT = 3;
+const MASTER_LIBRARY_LIMIT = 50;
+const MASTER_LIBRARY_CONFIG_BYTES = 512 * 1024;
 const UPSTREAM_ORIGIN = 'https://railmapgen.org';
 const proxiedPathPrefixes = ['/styles/', '/fonts/', '/rmg/', '/rmg-palette/', '/rmp-gallery/'];
 const leases = new Map();
@@ -172,6 +175,16 @@ const readPaletteCities = async () => {
     }
 };
 
+const readMasterLibrary = async () => {
+    try {
+        const library = JSON.parse(await readFile(masterLibraryPath, 'utf8'));
+        return Array.isArray(library.masters) ? library : { version: 1, masters: [] };
+    } catch (error) {
+        if (error?.code === 'ENOENT') return { version: 1, masters: [] };
+        throw error;
+    }
+};
+
 const validName = name => typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 120;
 const validContent = content => {
     if (typeof content !== 'string' || content.length > MAX_BODY_BYTES) return false;
@@ -275,6 +288,43 @@ const isValidPaletteCity = city =>
     city.lines.every(isValidPaletteLine) &&
     new Set(city.lines.map(line => line.id)).size === city.lines.length;
 
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isSafeJsonTree = (value, depth = 0) => {
+    if (depth > 32) return false;
+    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return true;
+    if (Array.isArray(value)) return value.length <= 1000 && value.every(item => isSafeJsonTree(item, depth + 1));
+    if (!isPlainObject(value)) return false;
+    const entries = Object.entries(value);
+    return (
+        entries.length <= 200 && entries.every(([key, item]) => key.length <= 160 && isSafeJsonTree(item, depth + 1))
+    );
+};
+const isValidMasterConfig = config => {
+    if (!isPlainObject(config) || !isSafeJsonTree(config)) return false;
+    if (![2, 3, 4].includes(config.version)) return false;
+    if (!['MiscNode', 'Station'].includes(config.nodeType ?? config.type)) return false;
+    if (!Array.isArray(config.svgs) || config.svgs.length > 1000) return false;
+    if (!Array.isArray(config.components) || config.components.length > 100) return false;
+    if (!isPlainObject(config.transform)) return false;
+    if (!Object.values(config.transform).every(value => typeof value === 'number' && Number.isFinite(value)))
+        return false;
+    try {
+        return Buffer.byteLength(JSON.stringify(config), 'utf8') <= MASTER_LIBRARY_CONFIG_BYTES;
+    } catch {
+        return false;
+    }
+};
+const isValidMasterLibraryEntry = entry =>
+    entry &&
+    typeof entry.id === 'string' &&
+    /^local-master-[a-zA-Z0-9_-]{8,64}$/.test(entry.id) &&
+    validName(entry.name) &&
+    typeof entry.createdAt === 'string' &&
+    Number.isFinite(Date.parse(entry.createdAt)) &&
+    typeof entry.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(entry.updatedAt)) &&
+    isValidMasterConfig(entry.config);
+
 const getLease = id => {
     const lease = leases.get(id);
     if (lease && lease.expiresAt <= Date.now()) leases.delete(id);
@@ -309,6 +359,28 @@ const handlePaletteCities = async (request, response) => {
         return sendJson(response, 200, { cities: savedCities.cities });
     }
 
+    return sendError(response, 405, 'Method not allowed.');
+};
+
+const handleMasterLibrary = async (request, response) => {
+    if (!requireAuthentication(request, response)) return;
+    if (request.method === 'GET') {
+        const library = await readMasterLibrary();
+        return sendJson(response, 200, { masters: library.masters });
+    }
+    if (request.method === 'PUT') {
+        const body = await readJsonBody(request);
+        if (
+            !Array.isArray(body.masters) ||
+            body.masters.length > MASTER_LIBRARY_LIMIT ||
+            !body.masters.every(isValidMasterLibraryEntry) ||
+            new Set(body.masters.map(master => master.id)).size !== body.masters.length
+        )
+            return sendError(response, 400, 'Invalid self-hosted master library.');
+        const library = { version: 1, masters: body.masters };
+        await withMutationLock(() => writeJsonAtomically(masterLibraryPath, library));
+        return sendJson(response, 200, { masters: library.masters });
+    }
     return sendError(response, 405, 'Method not allowed.');
 };
 
@@ -811,6 +883,7 @@ createServer(async (request, response) => {
         if (request.method === 'GET' && publicSvgDiagnostic)
             return await servePublicSvgFontDiagnostic(response, publicSvgDiagnostic[1]);
         if (url.pathname === '/api/rmp-saves/palette-cities') return await handlePaletteCities(request, response);
+        if (url.pathname === '/api/rmp-saves/master-library') return await handleMasterLibrary(request, response);
         if (url.pathname.startsWith('/api/rmp-saves/groups')) return await handleGroups(request, response, url);
         if (url.pathname === '/api/rmp-saves/profile') return await handleProfile(request, response);
         if (url.pathname.startsWith('/api/rmp-saves')) return await handleApi(request, response, url);

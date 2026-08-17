@@ -46,6 +46,14 @@ export interface SelfHostedPaletteCity {
     lines: SelfHostedPaletteLine[];
 }
 
+export interface SelfHostedMasterLibraryEntry {
+    id: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+    config: Record<string, unknown>;
+}
+
 export class SelfHostedApiError extends Error {
     constructor(
         message: string,
@@ -179,4 +187,13 @@ export const replaceSelfHostedPaletteCities = async (password: string, cities: S
     request<{ cities: SelfHostedPaletteCity[] }>('/palette-cities', password, {
         method: 'PUT',
         body: JSON.stringify({ cities }),
+    });
+
+export const listSelfHostedMasterLibrary = async (password: string) =>
+    request<{ masters: SelfHostedMasterLibraryEntry[] }>('/master-library', password);
+
+export const replaceSelfHostedMasterLibrary = async (password: string, masters: SelfHostedMasterLibraryEntry[]) =>
+    request<{ masters: SelfHostedMasterLibraryEntry[] }>('/master-library', password, {
+        method: 'PUT',
+        body: JSON.stringify({ masters }),
     });

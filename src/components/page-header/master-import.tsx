@@ -20,6 +20,8 @@ import { useTranslation } from 'react-i18next';
 import { defaultMasterTransform, MasterParam } from '../../constants/master';
 import { getContrastingColor, getRandomHexColor } from '../../util/color';
 import { getMasterNodeTypes } from '../../util/graph';
+import { SelfHostedMasterLibraryManager, SelfHostedMasterLibraryPicker } from '../../selfhost/master-library';
+import { isSelfHosted } from '../../selfhost/config';
 
 const RMP_MASTER_CHANNEL_NAME = 'RMP_MASTER_CHANNEL';
 const RMP_MASTER_CHANNEL_POST = 'MASTER_POST';
@@ -75,6 +77,8 @@ export const MasterImport = (props: {
     const [param, setParam] = React.useState('');
     const [useTextarea, setUseTextarea] = React.useState(false);
     const [textareaInvalid, setTextareaInvalid] = React.useState(false);
+    const [localLibraryOpen, setLocalLibraryOpen] = React.useState(false);
+    const [localLibraryVersion, setLocalLibraryVersion] = React.useState(0);
 
     React.useEffect(() => {
         if (isOpen) {
@@ -208,6 +212,13 @@ export const MasterImport = (props: {
                                 onChange={handleCompleteChange}
                             />
                         </RmgLabel>
+                        {isSelfHosted && (
+                            <SelfHostedMasterLibraryPicker
+                                key={localLibraryVersion}
+                                onSelect={config => handleChange(JSON.stringify(config))}
+                                onManage={() => setLocalLibraryOpen(true)}
+                            />
+                        )}
                         <RmgLabel label={t('header.settings.procedures.masterManager.importOther')}>
                             <Flex direction="row" width="100%">
                                 <Button m={1} width="100%" onClick={handleDesigner}>
@@ -248,6 +259,11 @@ export const MasterImport = (props: {
                     </ModalFooter>
                 </ModalContent>
             </Modal>
+            <SelfHostedMasterLibraryManager
+                isOpen={localLibraryOpen}
+                onClose={() => setLocalLibraryOpen(false)}
+                onChanged={() => setLocalLibraryVersion(version => version + 1)}
+            />
             <MasterImportGalleryAppClip
                 isOpen={appClipOpen}
                 onClose={() => setAppClipOpen(false)}

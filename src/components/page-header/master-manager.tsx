@@ -13,7 +13,7 @@ import { RmgFields, RmgFieldsField, RmgLineBadge } from '@railmapgen/rmg-compone
 import { MonoColour } from '@railmapgen/rmg-palette-resources';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { MdDelete, MdDownload, MdUpload } from 'react-icons/md';
+import { MdDelete, MdDownload, MdSave, MdUpload } from 'react-icons/md';
 import { MasterParam } from '../../constants/master';
 import { MiscNodeType } from '../../constants/nodes';
 import { useRootDispatch, useRootSelector } from '../../redux';
@@ -21,6 +21,8 @@ import { saveGraph } from '../../redux/param/param-slice';
 import { refreshNodesThunk } from '../../redux/runtime/runtime-slice';
 import { downloadAs } from '../../util/download';
 import { getMasterNodeTypes } from '../../util/graph';
+import { isSelfHosted } from '../../selfhost/config';
+import { makeMasterLibraryConfig, SelfHostedMasterLibraryManager } from '../../selfhost/master-library';
 import { MasterImport } from './master-import';
 
 export const MasterManager = (props: { isOpen: boolean; onClose: () => void }) => {
@@ -40,6 +42,7 @@ export const MasterManager = (props: { isOpen: boolean; onClose: () => void }) =
     }, [isOpen, refreshNodes]);
 
     const [openImport, setOpenImport] = React.useState<string | undefined>(undefined);
+    const [libraryMaster, setLibraryMaster] = React.useState<MasterParam | undefined>(undefined);
 
     const handleReplace = (param: MasterParam) => {
         graph.current
@@ -166,6 +169,11 @@ export const MasterManager = (props: { isOpen: boolean; onClose: () => void }) =
                     <Button onClick={() => setOpenImport(attrs.randomId)}>
                         <MdUpload />
                     </Button>
+                    {isSelfHosted && (
+                        <Button onClick={() => setLibraryMaster(attrs)} isDisabled={!attrs.randomId}>
+                            <MdSave />
+                        </Button>
+                    )}
                     <Button onClick={() => handleDownload(attrs)} isDisabled={!attrs.randomId}>
                         <MdDownload />
                     </Button>
@@ -190,6 +198,12 @@ export const MasterManager = (props: { isOpen: boolean; onClose: () => void }) =
                         isOpen={!!openImport}
                         onClose={() => setOpenImport(undefined)}
                         onSubmit={handleReplace}
+                    />
+                    <SelfHostedMasterLibraryManager
+                        isOpen={!!libraryMaster}
+                        onClose={() => setLibraryMaster(undefined)}
+                        initialConfig={libraryMaster ? makeMasterLibraryConfig(libraryMaster) : undefined}
+                        initialName={libraryMaster?.label}
                     />
                 </ModalBody>
 
