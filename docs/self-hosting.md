@@ -48,9 +48,12 @@ saves, so keep it in your server's secret manager.
   URL exposes only the rendered SVG, never the editable save JSON. Use
   **Disable** to revoke it; publishing again updates the SVG at the same URL.
   The server strips executable SVG content and sends a restrictive static-content
-  policy. Shared SVGs embed a small Latin fallback font, while Japanese labels
-  use the viewer's system fallback to keep files small. Use **Check font** next
-  to a published SVG to diagnose the current browser without remote DevTools.
+  policy. Shared SVGs embed a small Noto Sans Latin Extended fallback font,
+  including macrons used in Japanese romanisation, while Japanese labels use
+  the viewer's system fallback to keep files small. The embedded font is a
+  57 KB subset; its SIL Open Font License is included at
+  `public/fonts/OFL-NotoSans.txt`. Use **Check font** next to a published SVG
+  to diagnose the current browser without remote DevTools.
   Public SVGs may still reference external images that were already present in
   the map.
 - Local colour palettes define cities and their line-colour lists. Use **Manage

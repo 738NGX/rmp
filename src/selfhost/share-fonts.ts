@@ -9,9 +9,10 @@ let shareSansCss: Promise<string> | undefined;
 
 const getShareSansCss = () => {
     shareSansCss ??= (async () => {
-        // This is a WOFF2 subset of the bundled M Plus 2 font: Latin letters,
-        // numbers, punctuation and common map symbols only (about 19 KB).
-        const response = await fetch('/rmp/fonts/Mplus2-Latin.woff2');
+        // This is a WOFF2 subset of Noto Sans Latin Extended. It includes
+        // macrons used in Japanese romanisation (for example, "kyū") while
+        // remaining small enough to embed in every shared SVG.
+        const response = await fetch('/rmp/fonts/NotoSans-Latin.woff2');
         if (!response.ok) throw new Error(`Unable to load shared SVG fallback font (${response.status}).`);
         const bytes = new Uint8Array(await response.arrayBuffer());
         let binary = '';
