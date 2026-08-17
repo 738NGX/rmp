@@ -4,10 +4,6 @@ const SHARE_SANS_FAMILY = 'RMP Share Sans';
 const SYSTEM_SANS_FAMILIES = new Set(['arial,sans-serif', 'helvetica,arial,sans-serif']);
 const normaliseFontFamily = (family: string) => family.toLowerCase().replaceAll(/\s+/g, '');
 const shareSansStack = `'${SHARE_SANS_FAMILY}', Arial, sans-serif`;
-// Shared SVGs cannot rely on the desktop-only M PLUS 2 installation. In Edge
-// on Android, its CJK fallback can be a serif face even though the source stack
-// ends in sans-serif. system-ui selects the platform's UI CJK fallback instead.
-const japaneseSystemSansCss = '[font-family*="M PLUS 2"]{font-family:system-ui,sans-serif!important}';
 
 let shareSansCss: Promise<string> | undefined;
 
@@ -36,7 +32,7 @@ export const embedSelfHostedShareFallbackFont = async (elem: SVGSVGElement) => {
             elem.querySelector(':scope > defs') ?? document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         if (!defs.parentNode) elem.prepend(defs);
         const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-        style.textContent = (await getShareSansCss()) + japaneseSystemSansCss;
+        style.textContent = await getShareSansCss();
         defs.prepend(style);
         elem.querySelectorAll<SVGTextElement>('[font-family]').forEach(text => {
             const family = text.getAttribute('font-family');
