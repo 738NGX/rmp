@@ -71,6 +71,10 @@ saves, so keep it in your server's secret manager.
   group remain available under **Ungrouped**. Templates are private to the
   save-service password, capped at 50 entries and validated before they are
   stored; they are separate from individual map saves.
+- Master templates may use `font-family: "ja"` (including inside a v4
+  `attrBindings` value) as a portable Japanese-sans alias. RMP resolves it to
+  its bundled M PLUS 2 stack and loads that font only when the template is in
+  use. Existing explicit Japanese families such as `M PLUS 2` are detected too.
 - Uploaded local images are bundled into the cloud-save JSON. Images hosted by
   the original Rail Map service remain external references.
 - This mode removes RMP's dependency on the original subscription endpoint, but

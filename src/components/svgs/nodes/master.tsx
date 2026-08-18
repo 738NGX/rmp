@@ -9,6 +9,8 @@ import { defaultMasterTransform, MasterParam, MasterSvgsElem } from '../../../co
 import { Node, NodeComponentProps } from '../../../constants/nodes';
 import { usePaletteTheme } from '../../../util/hooks';
 import { collectMasterSvgAttrErrors, evaluateMasterSvgAttrs, normalizeTheme } from '../../../util/master-attr-binding';
+import { getMasterFontLanguages, normalizeMasterFontFamily } from '../../../util/master-fonts';
+import { loadFont } from '../../../util/fonts';
 import { MasterImport } from '../../page-header/master-import';
 import { MasterManager } from '../../page-header/master-manager';
 import ThemeButton from '../../panels/theme-button';
@@ -27,24 +29,28 @@ const normalizeSvgAttrName = (attrName: string) => {
 };
 
 const normalizeSvgStyleForReact = (style: unknown) => {
-    if (typeof style !== 'string') return style;
+    const styleEntries =
+        typeof style === 'string'
+            ? style
+                  .split(';')
+                  .map(rule => rule.trim())
+                  .filter(Boolean)
+                  .map(rule => {
+                      const separatorIndex = rule.indexOf(':');
+                      if (separatorIndex === -1) return undefined;
+                      return [rule.slice(0, separatorIndex).trim(), rule.slice(separatorIndex + 1).trim()] as const;
+                  })
+                  .filter((entry): entry is [string, string] => !!entry)
+            : style && typeof style === 'object'
+              ? Object.entries(style as Record<string, unknown>)
+              : undefined;
 
+    if (!styleEntries) return style;
     return Object.fromEntries(
-        style
-            .split(';')
-            .map(rule => rule.trim())
-            .filter(Boolean)
-            .map(rule => {
-                const separatorIndex = rule.indexOf(':');
-                if (separatorIndex === -1) return undefined;
-
-                const property = rule.slice(0, separatorIndex).trim();
-                const value = rule.slice(separatorIndex + 1).trim();
-                if (!property) return undefined;
-
-                return [normalizeSvgAttrName(property), value];
-            })
-            .filter((entry): entry is [string, string] => !!entry)
+        styleEntries.map(([property, value]) => {
+            const normalizedProperty = normalizeSvgAttrName(property);
+            return [normalizedProperty, normalizedProperty === 'fontFamily' ? normalizeMasterFontFamily(value) : value];
+        })
     );
 };
 
@@ -60,7 +66,12 @@ const normalizeSvgAttrsForReact = (attrs: Record<string, any>) => {
 
             if (reactAttrName in reactAttrs && priority < attrPriorities[reactAttrName]) return;
 
-            reactAttrs[reactAttrName] = attrName === 'style' ? normalizeSvgStyleForReact(value) : value;
+            reactAttrs[reactAttrName] =
+                attrName === 'style'
+                    ? normalizeSvgStyleForReact(value)
+                    : reactAttrName === 'fontFamily'
+                      ? normalizeMasterFontFamily(value)
+                      : value;
             attrPriorities[reactAttrName] = priority;
         });
 
@@ -82,6 +93,14 @@ const MasterNode = (props: NodeComponentProps<MasterAttributes>) => {
         (e: React.PointerEvent<SVGElement>) => handlePointerUp(id, e),
         [id, handlePointerUp]
     );
+    const masterFontLanguages = React.useMemo(
+        () => getMasterFontLanguages(attrs.svgs, attrs.components),
+        [attrs.components, attrs.svgs]
+    );
+
+    React.useEffect(() => {
+        masterFontLanguages.forEach(language => void loadFont(language));
+    }, [masterFontLanguages]);
 
     const calcFunc = (str: string, ...rest: string[]) => new Function(...rest, `return ${str}`);
 
