@@ -65,9 +65,12 @@ saves, so keep it in your server's secret manager.
 - Local master-node templates retain reusable master JSON on the server. Open
   **Manage all master nodes**, use the save button beside a master type, then
   name and save the template. The normal **Upload master parameter** dialog can
-  later select it directly from **Local master library**. Templates are private
-  to the save-service password, capped at 50 entries and validated before they
-  are stored; they are separate from individual map saves.
+  later select it directly from **Local master library**. Templates can be put
+  into nested groups using a slash-separated path such as `Japan/Tokyo/Metro`;
+  the import dialog filters them level by level. Existing templates without a
+  group remain available under **Ungrouped**. Templates are private to the
+  save-service password, capped at 50 entries and validated before they are
+  stored; they are separate from individual map saves.
 - Uploaded local images are bundled into the cloud-save JSON. Images hosted by
   the original Rail Map service remain external references.
 - This mode removes RMP's dependency on the original subscription endpoint, but

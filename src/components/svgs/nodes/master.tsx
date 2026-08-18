@@ -141,7 +141,12 @@ const MasterNode = (props: NodeComponentProps<MasterAttributes>) => {
                     : {};
             const evaluatedAttrsResult =
                 attrs.version === 4
-                    ? evaluateMasterSvgAttrs(s, attrs.components)
+                    ? {
+                          // v4 bindings describe dynamic values, while attrs remains the
+                          // compatible home for static SVG data exported by older Designer builds.
+                          // Keep static attributes and let an explicit binding take precedence.
+                          attrs: { ...s.attrs, ...evaluateMasterSvgAttrs(s, attrs.components).attrs },
+                      }
                     : {
                           attrs: modifyAttributes(
                               s.attrs,
@@ -297,6 +302,18 @@ const attrsComponent = (props: AttrsProps<MasterAttributes>) => {
                 component: (
                     <MasterComponentThemeButton component={c} onChange={theme => updateComponentValue(i, theme)} />
                 ),
+            };
+        } else if (type === 'select' || type === 'dropdown' || type === 'option' || type === 'options') {
+            const options = c.constraints?.options?.map(option => String(option)) ?? [];
+            return {
+                type: 'select',
+                label: t(label),
+                value: String(value ?? defaultValue ?? options[0] ?? ''),
+                options: Object.fromEntries(options.map(option => [option, option])),
+                isDisabled: options.length === 0,
+                onChange: selected => {
+                    updateComponentValue(i, selected);
+                },
             };
         } else {
             return {

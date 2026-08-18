@@ -49,6 +49,8 @@ export interface SelfHostedPaletteCity {
 export interface SelfHostedMasterLibraryEntry {
     id: string;
     name: string;
+    /** Optional slash-separated hierarchy, for example "Japan/Tokyo/Metro". */
+    group?: string;
     createdAt: string;
     updatedAt: string;
     config: Record<string, unknown>;

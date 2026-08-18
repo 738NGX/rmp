@@ -2,7 +2,7 @@ import { MonoColour } from '@railmapgen/rmg-palette-resources';
 import { fireEvent, render } from '@testing-library/react';
 import React from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { CityCode, MiscNodeId, Theme } from '../../../constants/constants';
+import { AttrsProps, CityCode, MiscNodeId, Theme } from '../../../constants/constants';
 import { defaultMasterTransform } from '../../../constants/master';
 import { NodeComponentProps } from '../../../constants/nodes';
 import type { MasterAttributes } from './master';
@@ -15,7 +15,29 @@ vi.mock('@chakra-ui/react', () => ({
 }));
 
 vi.mock('@railmapgen/rmg-components', () => ({
-    RmgFields: () => null,
+    RmgFields: ({ fields }: { fields: Array<Record<string, any>> }) => (
+        <>
+            {fields.map((field, index) =>
+                field.type === 'select' ? (
+                    <label key={index}>
+                        {field.label}
+                        <select
+                            aria-label={field.label}
+                            value={field.value}
+                            disabled={field.isDisabled}
+                            onChange={event => field.onChange?.(event.target.value)}
+                        >
+                            {Object.entries(field.options).map(([value, label]) => (
+                                <option key={value} value={value}>
+                                    {String(label)}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                ) : null
+            )}
+        </>
+    ),
     RmgLabel: ({ children }: React.PropsWithChildren) => <label>{children}</label>,
     RmgLineBadge: () => <span />,
 }));
@@ -44,6 +66,7 @@ const theme: Theme = [CityCode.Shanghai, 'sh1', '#E4002B', MonoColour.white];
 const secondTheme: Theme = [CityCode.Guangzhou, 'gz1', '#F3D03E', MonoColour.black];
 const updatedTheme: Theme = [CityCode.Beijing, 'bj1', '#C23A30', MonoColour.white];
 let MasterNodeComponent: React.FC<NodeComponentProps<MasterAttributes>>;
+let MasterAttrsComponent: React.FC<AttrsProps<MasterAttributes>>;
 
 const baseProps = {
     id: 'misc_node_master' as MiscNodeId,
@@ -58,6 +81,7 @@ describe('MasterNode rendering', () => {
     beforeAll(async () => {
         const masterNode = await import('./master');
         MasterNodeComponent = masterNode.default.component;
+        MasterAttrsComponent = masterNode.default.attrsComponent;
     });
 
     it('renders legacy v2/v3 masters through attrs and top-level color', () => {
@@ -171,6 +195,76 @@ describe('MasterNode rendering', () => {
         expect(path?.style.fill).toBe('none');
         expect(path?.style.stroke).toBe('#123456');
         expect(path?.style.strokeWidth).toBe('3');
+    });
+
+    it('keeps static v4 text attributes while applying dynamic bindings', () => {
+        const attrs: MasterAttributes = {
+            randomId: 'v4-static-text',
+            version: 4,
+            transform: defaultMasterTransform,
+            nodeType: 'MiscNode',
+            components: [{ id: 'label', label: 'label', type: 'text', defaultValue: 'Central' }],
+            svgs: [
+                {
+                    id: 'label',
+                    type: 'text',
+                    attrs: {
+                        'font-family': 'Inter, sans-serif',
+                        'font-size': '16',
+                        'font-weight': '600',
+                        style: 'letter-spacing: 0.4px',
+                    },
+                    attrBindings: {
+                        _rmp_children_text: { kind: 'variable', componentId: 'label' },
+                    },
+                },
+            ],
+        };
+
+        const { container } = render(
+            <svg>
+                <MasterNodeComponent {...baseProps} attrs={attrs} />
+            </svg>
+        );
+
+        const text = container.querySelector('text');
+        expect(text?.textContent).toBe('Central');
+        expect(text?.getAttribute('font-family')).toBe('Inter, sans-serif');
+        expect(text?.getAttribute('font-size')).toBe('16');
+        expect(text?.getAttribute('font-weight')).toBe('600');
+        expect(text?.style.letterSpacing).toBe('0.4px');
+    });
+
+    it('renders options as a selectable master component', () => {
+        const handleAttrsUpdate = vi.fn();
+        const attrs: MasterAttributes = {
+            randomId: 'v4-select',
+            version: 4,
+            transform: defaultMasterTransform,
+            nodeType: 'MiscNode',
+            components: [
+                {
+                    id: 'weight',
+                    label: 'Font weight',
+                    type: 'select',
+                    constraints: { options: ['400', '600'] },
+                    defaultValue: '400',
+                },
+            ],
+            svgs: [],
+        };
+
+        const { getByRole } = render(
+            <MasterAttrsComponent id="misc_node_master" attrs={attrs} handleAttrsUpdate={handleAttrsUpdate} />
+        );
+
+        const select = getByRole('combobox', { name: 'Font weight' });
+        expect((select as HTMLSelectElement).value).toBe('400');
+        fireEvent.change(select, { target: { value: '600' } });
+        expect(handleAttrsUpdate).toHaveBeenCalledWith(
+            'misc_node_master',
+            expect.objectContaining({ components: [expect.objectContaining({ value: '600' })] })
+        );
     });
 
     it('uses the whole wrapper as the station core for v4 station masters without core', () => {

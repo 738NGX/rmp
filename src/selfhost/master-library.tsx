@@ -13,6 +13,7 @@ import {
     ModalContent,
     ModalHeader,
     ModalOverlay,
+    Select,
     Stack,
     Text,
     Textarea,
@@ -34,6 +35,11 @@ const getLabels = (language: string) => {
             manage: '管理本地大师节点',
             choose: '从本地库选择',
             name: '模板名称',
+            group: '分组路径',
+            groupHint: '可用 / 建立层级，例如：日本/东京/地铁。留空即为未分组。',
+            allGroups: '全部分组',
+            allSubgroups: '全部下级分组',
+            ungrouped: '未分组',
             config: '配置 JSON',
             save: '保存模板',
             new: '新建模板',
@@ -48,6 +54,11 @@ const getLabels = (language: string) => {
             manage: '管理本機大師節點',
             choose: '從本機庫選擇',
             name: '範本名稱',
+            group: '群組路徑',
+            groupHint: '可用 / 建立層級，例如：日本/東京/地鐵。留空即為未分組。',
+            allGroups: '全部群組',
+            allSubgroups: '全部下層群組',
+            ungrouped: '未分組',
             config: '設定 JSON',
             save: '儲存範本',
             new: '新增範本',
@@ -61,6 +72,11 @@ const getLabels = (language: string) => {
         manage: 'Manage local masters',
         choose: 'Choose from local library',
         name: 'Template name',
+        group: 'Group path',
+        groupHint: 'Use / for levels, for example Japan/Tokyo/Metro. Leave empty for ungrouped.',
+        allGroups: 'All groups',
+        allSubgroups: 'All subgroups',
+        ungrouped: 'Ungrouped',
         config: 'Configuration JSON',
         save: 'Save template',
         new: 'New template',
@@ -73,6 +89,24 @@ const getLabels = (language: string) => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const getGroupPath = (entry: SelfHostedMasterLibraryEntry) =>
+    (entry.group ?? '')
+        .split('/')
+        .map(segment => segment.trim())
+        .filter(Boolean);
+
+const normalizeGroup = (group: string) =>
+    group
+        .split('/')
+        .map(segment => segment.trim())
+        .filter(Boolean)
+        .join('/');
+
+const groupLabel = (entry: SelfHostedMasterLibraryEntry, labels: ReturnType<typeof getLabels>) => {
+    const path = getGroupPath(entry);
+    return path.length > 0 ? path.join(' / ') : labels.ungrouped;
+};
 
 /** Export a reusable definition, never the component values from one canvas instance. */
 export const makeMasterLibraryConfig = (master: MasterParam): Record<string, unknown> => {
@@ -106,6 +140,7 @@ export function SelfHostedMasterLibraryPicker(props: {
     const password = sessionStorage.getItem(PASSWORD_KEY) ?? '';
     const [masters, setMasters] = React.useState<SelfHostedMasterLibraryEntry[]>([]);
     const [selectedId, setSelectedId] = React.useState('');
+    const [selectedGroupPath, setSelectedGroupPath] = React.useState<string[]>([]);
 
     React.useEffect(() => {
         if (!isSelfHosted || !password) return;
@@ -117,33 +152,82 @@ export function SelfHostedMasterLibraryPicker(props: {
     if (!isSelfHosted) return null;
     if (!password) return <Text color="orange.500">{labels.noPassword}</Text>;
     const selected = masters.find(master => master.id === selectedId);
-    const options = masters.map(entry => ({ id: entry.id, value: entry.name, entry }));
+    const groupLevels = Array.from(
+        { length: Math.max(0, ...masters.map(master => getGroupPath(master).length)) },
+        (_, depth) => {
+            if (depth > 0 && !selectedGroupPath[depth - 1]) return [];
+            return Array.from(
+                new Set(
+                    masters
+                        .filter(master =>
+                            selectedGroupPath.slice(0, depth).every((segment, index) => {
+                                return !segment || getGroupPath(master)[index] === segment;
+                            })
+                        )
+                        .map(master => getGroupPath(master)[depth])
+                        .filter((segment): segment is string => !!segment)
+                )
+            ).sort((left, right) => left.localeCompare(right));
+        }
+    );
+    const visibleMasters = masters.filter(master =>
+        selectedGroupPath.every((segment, index) => !segment || getGroupPath(master)[index] === segment)
+    );
+    const options = visibleMasters.map(entry => ({ id: entry.id, value: entry.name, entry }));
     return (
         <RmgLabel label={labels.choose}>
-            <HStack align="start">
-                <Box flex="1">
-                    <RmgAutoComplete
-                        data={options}
-                        displayHandler={item => <Text noOfLines={1}>{item.value}</Text>}
-                        filter={(query, item) => {
-                            const needle = query.toLowerCase();
-                            const configId = item.entry.config.id ?? item.entry.config.randomId ?? '';
-                            const label = item.entry.config.label ?? '';
-                            return [item.value, String(configId), String(label)].some(value =>
-                                value.toLowerCase().includes(needle)
-                            );
-                        }}
-                        value={selected?.name ?? ''}
-                        onChange={item => {
-                            setSelectedId(item.id);
-                            onSelect(item.entry.config);
-                        }}
-                    />
-                </Box>
-                <Button size="sm" onClick={onManage}>
-                    {labels.manage}
-                </Button>
-            </HStack>
+            <Stack spacing="2">
+                {groupLevels.map((groups, depth) =>
+                    groups.length > 0 ? (
+                        <Select
+                            key={depth}
+                            size="sm"
+                            value={selectedGroupPath[depth] ?? ''}
+                            aria-label={depth === 0 ? labels.allGroups : labels.allSubgroups}
+                            onChange={event => {
+                                const group = event.target.value;
+                                setSelectedGroupPath(previous => {
+                                    const next = previous.slice(0, depth);
+                                    if (group) next[depth] = group;
+                                    return next;
+                                });
+                                setSelectedId('');
+                            }}
+                        >
+                            <option value="">{depth === 0 ? labels.allGroups : labels.allSubgroups}</option>
+                            {groups.map(group => (
+                                <option key={group} value={group}>
+                                    {group}
+                                </option>
+                            ))}
+                        </Select>
+                    ) : null
+                )}
+                <HStack align="start">
+                    <Box flex="1">
+                        <RmgAutoComplete
+                            data={options}
+                            displayHandler={item => <Text noOfLines={1}>{item.value}</Text>}
+                            filter={(query, item) => {
+                                const needle = query.toLowerCase();
+                                const configId = item.entry.config.id ?? item.entry.config.randomId ?? '';
+                                const label = item.entry.config.label ?? '';
+                                return [item.value, String(configId), String(label)].some(value =>
+                                    value.toLowerCase().includes(needle)
+                                );
+                            }}
+                            value={selected?.name ?? ''}
+                            onChange={item => {
+                                setSelectedId(item.id);
+                                onSelect(item.entry.config);
+                            }}
+                        />
+                    </Box>
+                    <Button size="sm" onClick={onManage}>
+                        {labels.manage}
+                    </Button>
+                </HStack>
+            </Stack>
         </RmgLabel>
     );
 }
@@ -162,6 +246,7 @@ export function SelfHostedMasterLibraryManager(props: {
     const [masters, setMasters] = React.useState<SelfHostedMasterLibraryEntry[]>([]);
     const [selectedId, setSelectedId] = React.useState('');
     const [name, setName] = React.useState('');
+    const [group, setGroup] = React.useState('');
     const [configText, setConfigText] = React.useState('');
     const [error, setError] = React.useState<string | null>(null);
     const [isBusy, setIsBusy] = React.useState(false);
@@ -169,6 +254,7 @@ export function SelfHostedMasterLibraryManager(props: {
     const newTemplate = React.useCallback(() => {
         setSelectedId('');
         setName(initialName ?? 'My master');
+        setGroup('');
         setConfigText(initialConfig ? JSON.stringify(initialConfig, null, 2) : '');
         setError(null);
     }, [initialConfig, initialName]);
@@ -188,6 +274,7 @@ export function SelfHostedMasterLibraryManager(props: {
     const select = (entry: SelfHostedMasterLibraryEntry) => {
         setSelectedId(entry.id);
         setName(entry.name);
+        setGroup(entry.group ?? '');
         setConfigText(JSON.stringify(entry.config, null, 2));
         setError(null);
     };
@@ -209,6 +296,7 @@ export function SelfHostedMasterLibraryManager(props: {
         const entry: SelfHostedMasterLibraryEntry = {
             id: current?.id ?? newEntryId(),
             name: name.trim() || 'Untitled master',
+            group: normalizeGroup(group) || undefined,
             createdAt: current?.createdAt ?? now,
             updatedAt: now,
             config,
@@ -274,20 +362,34 @@ export function SelfHostedMasterLibraryManager(props: {
                                 {error}
                             </Alert>
                         )}
-                        {masters.length > 0 && (
-                            <HStack wrap="wrap">
-                                {masters.map(entry => (
-                                    <Button
-                                        key={entry.id}
-                                        size="sm"
-                                        variant={entry.id === selectedId ? 'solid' : 'outline'}
-                                        onClick={() => select(entry)}
-                                    >
-                                        {entry.name}
-                                    </Button>
+                        {masters.length > 0 &&
+                            Array.from(
+                                masters.reduce((groups, entry) => {
+                                    const key = groupLabel(entry, labels);
+                                    groups.set(key, [...(groups.get(key) ?? []), entry]);
+                                    return groups;
+                                }, new Map<string, SelfHostedMasterLibraryEntry[]>())
+                            )
+                                .sort(([left], [right]) => left.localeCompare(right))
+                                .map(([groupName, entries]) => (
+                                    <Stack key={groupName} spacing="1">
+                                        <Text fontSize="sm" color="gray.500" fontWeight="bold">
+                                            {groupName}
+                                        </Text>
+                                        <HStack wrap="wrap">
+                                            {entries.map(entry => (
+                                                <Button
+                                                    key={entry.id}
+                                                    size="sm"
+                                                    variant={entry.id === selectedId ? 'solid' : 'outline'}
+                                                    onClick={() => select(entry)}
+                                                >
+                                                    {entry.name}
+                                                </Button>
+                                            ))}
+                                        </HStack>
+                                    </Stack>
                                 ))}
-                            </HStack>
-                        )}
                         <FormControl>
                             <FormLabel>{labels.name}</FormLabel>
                             <Input
@@ -295,6 +397,18 @@ export function SelfHostedMasterLibraryManager(props: {
                                 onChange={event => setName(event.target.value)}
                                 isDisabled={!password || isBusy}
                             />
+                        </FormControl>
+                        <FormControl>
+                            <FormLabel>{labels.group}</FormLabel>
+                            <Input
+                                value={group}
+                                onChange={event => setGroup(event.target.value)}
+                                placeholder="Japan/Tokyo/Metro"
+                                isDisabled={!password || isBusy}
+                            />
+                            <Text fontSize="xs" color="gray.500" mt="1">
+                                {labels.groupHint}
+                            </Text>
                         </FormControl>
                         <FormControl>
                             <FormLabel>{labels.config}</FormLabel>

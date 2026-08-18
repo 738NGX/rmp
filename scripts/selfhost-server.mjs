@@ -314,6 +314,12 @@ const isValidMasterConfig = config => {
         return false;
     }
 };
+const isValidMasterGroup = group =>
+    group === undefined ||
+    (typeof group === 'string' &&
+        group.length <= 180 &&
+        group.split('/').length <= 5 &&
+        group.split('/').every(segment => validName(segment)));
 const isValidMasterLibraryEntry = entry =>
     entry &&
     typeof entry.id === 'string' &&
@@ -323,6 +329,7 @@ const isValidMasterLibraryEntry = entry =>
     Number.isFinite(Date.parse(entry.createdAt)) &&
     typeof entry.updatedAt === 'string' &&
     Number.isFinite(Date.parse(entry.updatedAt)) &&
+    isValidMasterGroup(entry.group) &&
     isValidMasterConfig(entry.config);
 
 const getLease = id => {
@@ -377,7 +384,7 @@ const handleMasterLibrary = async (request, response) => {
             new Set(body.masters.map(master => master.id)).size !== body.masters.length
         )
             return sendError(response, 400, 'Invalid self-hosted master library.');
-        const library = { version: 1, masters: body.masters };
+        const library = { version: 2, masters: body.masters };
         await withMutationLock(() => writeJsonAtomically(masterLibraryPath, library));
         return sendJson(response, 200, { masters: library.masters });
     }
