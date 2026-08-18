@@ -62,6 +62,16 @@ vi.mock('../../../util/hooks', () => ({
     usePaletteTheme: () => ({ theme: undefined, requestThemeChange: () => undefined }),
 }));
 
+const loadFont = vi.fn();
+vi.mock('../../../util/fonts', () => ({
+    TextLanguage: { jreast_ja: 'jreast_ja' },
+    getLangStyle: () => ({
+        fontFamily: "a-otf-ud-shin-go-pr6n, 'M PLUS 2', sans-serif",
+        style: { fontSynthesis: 'none' },
+    }),
+    loadFont,
+}));
+
 const theme: Theme = [CityCode.Shanghai, 'sh1', '#E4002B', MonoColour.white];
 const secondTheme: Theme = [CityCode.Guangzhou, 'gz1', '#F3D03E', MonoColour.black];
 const updatedTheme: Theme = [CityCode.Beijing, 'bj1', '#C23A30', MonoColour.white];
@@ -233,6 +243,44 @@ describe('MasterNode rendering', () => {
         expect(text?.getAttribute('font-size')).toBe('16');
         expect(text?.getAttribute('font-weight')).toBe('600');
         expect(text?.style.letterSpacing).toBe('0.4px');
+    });
+
+    it('applies Japanese class styles and scopes master CSS below its node id', () => {
+        const attrs: MasterAttributes = {
+            randomId: 'v4-japanese-class',
+            version: 4,
+            transform: defaultMasterTransform,
+            nodeType: 'MiscNode',
+            components: [],
+            svgs: [
+                {
+                    id: 'language-style',
+                    type: 'style',
+                    attrs: { _rmp_children_text: '.rmp-name__jreast_ja { font-size: 8px; }' },
+                },
+                {
+                    id: 'label',
+                    type: 'text',
+                    attrs: {
+                        class: 'rmp-name__jreast_ja',
+                        _rmp_children_text: '上海繞城線',
+                    },
+                },
+            ],
+        };
+
+        const { container } = render(
+            <svg>
+                <MasterNodeComponent {...baseProps} attrs={attrs} />
+            </svg>
+        );
+
+        const text = container.querySelector('text');
+        expect(container.querySelector('#misc_node_master .rmp-name__jreast_ja')).toBe(text);
+        expect(text?.getAttribute('font-family')).toContain('M PLUS 2');
+        expect(text?.style.fontSynthesis).toBe('none');
+        expect(container.querySelector('style')?.textContent).toContain('#misc_node_master .rmp-name__jreast_ja');
+        expect(loadFont).toHaveBeenCalledWith('jreast_ja');
     });
 
     it('renders options as a selectable master component', () => {

@@ -11,11 +11,18 @@ const isJapaneseFontFamily = (value: unknown) => {
     return JAPANESE_FONT_ALIASES.has(value.trim().toLowerCase()) || JAPANESE_FONT_PATTERN.test(value);
 };
 
+const hasJapaneseNameClass = (value: unknown) =>
+    typeof value === 'string' && /(?:^|\s)rmp-name__(?:jreast_ja|tokyo_ja)(?:\s|$)/.test(value);
+
 /** Turn the portable `ja` family aliases into RMP's bundled Japanese sans stack. */
 export const normalizeMasterFontFamily = (value: unknown) => {
     if (typeof value !== 'string' || !isJapaneseFontFamily(value)) return value;
     return getLangStyle(TextLanguage.jreast_ja).fontFamily;
 };
+
+/** The Designer's language classes need the same concrete SVG props as native nodes. */
+export const getMasterClassTextStyle = (className: unknown) =>
+    hasJapaneseNameClass(className) ? getLangStyle(TextLanguage.jreast_ja) : undefined;
 
 const getStyleFontFamily = (style: unknown) => {
     if (typeof style === 'string') {
@@ -31,7 +38,8 @@ const getStyleFontFamily = (style: unknown) => {
 const containsJapaneseFont = (attrs: Record<string, unknown>) => {
     return (
         isJapaneseFontFamily(attrs['font-family'] ?? attrs.fontFamily ?? attrs.font) ||
-        isJapaneseFontFamily(getStyleFontFamily(attrs.style))
+        isJapaneseFontFamily(getStyleFontFamily(attrs.style)) ||
+        hasJapaneseNameClass(attrs.class ?? attrs.className)
     );
 };
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MasterComponent, MasterSvgsElem } from '../constants/master';
 import { TextLanguage } from './fonts';
-import { getMasterFontLanguages, normalizeMasterFontFamily } from './master-fonts';
+import { getMasterClassTextStyle, getMasterFontLanguages, normalizeMasterFontFamily } from './master-fonts';
 
 const components: MasterComponent[] = [{ id: 'font', label: 'font', type: 'select', defaultValue: 'ja' }];
 
@@ -29,5 +29,9 @@ describe('master fonts', () => {
         ];
 
         expect(getMasterFontLanguages(svgs, [])).toEqual([TextLanguage.jreast_ja]);
+    });
+
+    it('recognizes the Designer Japanese name class', () => {
+        expect(getMasterClassTextStyle('rmp-name__jreast_ja')?.fontFamily).toContain('M PLUS 2');
     });
 });

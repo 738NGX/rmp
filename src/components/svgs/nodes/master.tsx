@@ -9,7 +9,7 @@ import { defaultMasterTransform, MasterParam, MasterSvgsElem } from '../../../co
 import { Node, NodeComponentProps } from '../../../constants/nodes';
 import { usePaletteTheme } from '../../../util/hooks';
 import { collectMasterSvgAttrErrors, evaluateMasterSvgAttrs, normalizeTheme } from '../../../util/master-attr-binding';
-import { getMasterFontLanguages, normalizeMasterFontFamily } from '../../../util/master-fonts';
+import { getMasterClassTextStyle, getMasterFontLanguages, normalizeMasterFontFamily } from '../../../util/master-fonts';
 import { loadFont } from '../../../util/fonts';
 import { MasterImport } from '../../page-header/master-import';
 import { MasterManager } from '../../page-header/master-manager';
@@ -74,6 +74,12 @@ const normalizeSvgAttrsForReact = (attrs: Record<string, any>) => {
                       : value;
             attrPriorities[reactAttrName] = priority;
         });
+
+    const classTextStyle = getMasterClassTextStyle(attrs.class ?? attrs.className);
+    if (classTextStyle) {
+        reactAttrs.fontFamily ??= classTextStyle.fontFamily;
+        reactAttrs.style = { ...classTextStyle.style, ...reactAttrs.style };
+    }
 
     return reactAttrs;
 };
@@ -204,7 +210,7 @@ const MasterNode = (props: NodeComponentProps<MasterAttributes>) => {
 
     return React.createElement(
         'g',
-        { ...gPointerEvents },
+        { id, ...gPointerEvents },
         attrs.randomId ? (
             <g
                 {...v4StationCoreProps}
